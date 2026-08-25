@@ -1,14 +1,7 @@
 [[language]]
 name = "sql"
 auto-format = true
-formatter = { command = "uvx", args = [
-  "sqlfluff",
-  "format",
-  "--nocolor",
-  "--config",
-  "@HOME@/.config/tools/sqlfluff",
-  "-",
-] }
+formatter = { command = "uvx", args = ["sqlfluff", "format", "--nocolor", "-"] }
 
 [[language]]
 name = "python"
@@ -19,7 +12,7 @@ language-servers = ["ruff", "ty"]
 roots = ["pyproject.toml", "poetry.lock", ".git", ".venv/"]
 formatter = { command = "sh", args = [
   "-c",
-  "uvx ruff check --config @HOME@/.config/tools/ruff.toml --fix --select I - | uvx ruff check --config @HOME@/.config/tools/ruff.toml --fix - | uvx ruff format --config @HOME@/.config/tools/ruff.toml -",
+  "uvx ruff check --fix --select I - | uvx ruff check --fix - | uvx ruff format -",
 ] }
 
 [language-server.ruff]
@@ -27,8 +20,6 @@ command = "uvx"
 args = ["ruff", "server"]
 environment = { "RUFF_TRACE" = "messages" }
 
-[language-server.ruff.config.settings]
-configuration = "@HOME@/.config/tools/ruff.toml"
 
 [language-server.ty]
 command = "uvx"

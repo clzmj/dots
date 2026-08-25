@@ -1,8 +1,8 @@
 bold-is-bright = true
 clipboard-paste-bracketed-safe = true
 cursor-style = block
-font-family = @FONT@
-font-size = @FONT_SIZE@
+font-family = JetBrainsMonoNL Nerd Font Mono
+font-size = 12
 keybind = shift+enter=text:\x1b\r
 keybind = super+v=paste_from_clipboard
 macos-option-as-alt = right
@@ -18,4 +18,4 @@ window-padding-balance = true
 window-padding-color = background
 window-padding-x = 5
 window-padding-y = 5
-working-directory = @DESKTOP@
+working-directory = ~/Desktop

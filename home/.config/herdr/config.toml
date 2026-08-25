@@ -1,7 +1,7 @@
 onboarding = false
 
 [theme]
-name = "@THEME@"
+name = "vesper"
 
 auto_switch = false
 [ui]

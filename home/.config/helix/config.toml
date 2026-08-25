@@ -1,4 +1,4 @@
-theme = "@THEME@"
+theme = "vesper"
 
 [editor]
 auto-save = true

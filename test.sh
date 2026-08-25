@@ -17,9 +17,8 @@ H=$B/t1; mkdir -p "$H"; run "$H" DOTS_YES=1 >/dev/null
 [ "$(readlink "$H/.zshrc")" = "$DOTS/home/.zshrc" ] && pass "T1 zshrc symlinked" || fail T1 "not a symlink"
 grep -q 'theme = "vesper"'   "$H/.config/helix/config.toml" && pass "T1 theme rendered"  || fail T1 theme
 grep -q 'carlos@example.com' "$H/.config/git/local"          && pass "T1 git identity"   || fail T1 identity
-[ "$(grep -c . "$H/.config/dots/answers")" = 5 ]             && pass "T1 answers cached" || fail T1 answers
-if grep -q '@HOME@' "$H/.config/helix/languages.toml"; then fail T1 "@HOME@ left unexpanded"
-else grep -q "$H" "$H/.config/helix/languages.toml" && pass "T1 @HOME@ expanded" || fail T1 "@HOME@"; fi
+[ "$(grep -c . "$H/.config/dots/answers")" = 2 ]             && pass "T1 answers cached" || fail T1 answers
+[ -L "$H/.config/helix/languages.toml" ] && pass "T1 configs are links, not renders" || fail T1 "languages.toml is not a symlink"
 
 O=$(run "$H" DOTS_YES=1)
 case "$O" in *"already have"*) fail T2 "re-run saw conflicts" ;; *) [ -d "$H/.dots-backup" ] \
@@ -39,9 +38,9 @@ H=$B/t4; dirty "$H"; run "$H" >/dev/null   # no tty, no DOTS_YES => declines
 
 H=$B/t5; mkdir -p "$H"
 env -i HOME="$H" PATH="$PATH" DOTS_SKIP_PACKAGES=1 DOTS_YES=1 DOTS_NAME="Ada Lovelace" \
-  DOTS_EMAIL="ada@example.org" DOTS_THEME=dracula sh "$DOTS/setup.sh" >/dev/null 2>&1
-grep -q "Ada Lovelace" "$H/.config/git/local" && grep -q 'theme = "dracula"' \
-  "$H/.config/helix/config.toml" && pass "T5 env override" || fail T5 override
+  DOTS_EMAIL="ada@example.org" sh "$DOTS/setup.sh" >/dev/null 2>&1
+grep -q "Ada Lovelace" "$H/.config/git/local" && grep -q "ada@example.org" \
+  "$H/.config/git/local" && pass "T5 env override" || fail T5 override
 
 if command -v zsh >/dev/null 2>&1; then
   O=$(HOME=$B/t1 zsh -c 'source ~/.zshrc; echo LOADED; which gst' 2>&1)
@@ -50,20 +49,10 @@ if command -v zsh >/dev/null 2>&1; then
                *) pass "T6 no zsh syntax errors" ;; esac
 else echo "  SKIP T6 (no zsh)"; fi
 
-# Answers are user text; `|` `&` `\` are all sed metacharacters in render().
-for v in 'a|b' 'a&b' 'a\b'; do
-  H=$B/tm; rm -rf "$H"; mkdir -p "$H"
-  env -i HOME="$H" PATH="$PATH" DOTS_SKIP_PACKAGES=1 DOTS_YES=1 DOTS_THEME="$v" \
-    sh "$DOTS/setup.sh" >/dev/null 2>&1
-  if [ "$(head -1 "$H/.config/helix/config.toml" 2>/dev/null)" = "theme = \"$v\"" ] \
-     && [ -f "$H/.config/git/local" ]; then pass "T9 metachar answer $v"
-  else fail T9 "THEME=$v corrupted the render or aborted the run"; fi
-done
-
 # nothing chezmoi-shaped may survive into a rendered file, and no @VAR@ may be left over
-if grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" "$B/t1/.zshrc" "$B/t1/.zprofile" 2>/dev/null | grep -q .; then
-  fail T10 "unrendered placeholder or template left in: $(grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" 2>/dev/null | tr '\n' ' ')"
-else pass "T10 no leftover templates or placeholders"; fi
+if grep -rlE '\{\{|@[A-Z_]+@' "$DOTS/home" 2>/dev/null | grep -q .; then
+  fail T10 "a template placeholder crept back into the repo"
+else pass "T10 repo has no template placeholders"; fi
 
 # A file dropped from the repo must not leave a dangling symlink behind — a
 # broken link still matches globs like ~/.config/zsh/*.zsh.

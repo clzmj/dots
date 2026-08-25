@@ -82,38 +82,55 @@ so `core.excludesFile` and `core.attributesFile` aren't set.
 silently shadow everything here. With `GIT_CONFIG_GLOBAL` set, `--global`
 writes to the right file and `~/.gitconfig` never comes back.
 
-## packages.txt
+## packages.sh
 
+Not a config format — a shell script. `sh -n packages.sh` checks it, and the
+install commands are written out per platform exactly as you would type them:
+
+```sh
+case $PLATFORM in            # darwin | debian | fedora | arch
+debian)
+  sudo apt-get install -y zsh git curl ripgrep eza fzf jq git-delta ...
+  have fd  || deb sharkdp/fd  'fd_${V}_${DEB_ARCH}.deb'
+  have bat || deb sharkdp/bat 'bat_${V}_${DEB_ARCH}.deb'
+  ;;
+esac
 ```
-kind  name  os  spec...
-```
 
-`kind` is `tap`/`brew`/`cask` (**macOS only** — there is no Homebrew on Linux
-here), `sys` (apt/dnf/pacman), `gh` (a prebuilt release), `sh` (an official
-installer script), `go`, or `bun`. `os` is `-`, `darwin`, `linux`, or a specific
-`debian`/`fedora`/`arch`.
+Helpers: `have`, `deb`, `rpm`, `bin`, `tarbin`, `helix_release`, `go_release`,
+`go_install`, `bun_install`. Single-quote a release asset name and use ordinary
+shell variables in it — `$V`, `$DEB_ARCH`, `$RPM_ARCH`, `$ARCH`, `$ARCH2`.
 
-`name` is what gets **tested for**, which matters more than it looks: package
-and binary names diverge constantly — `bottom`→`btm`, `git-delta`→`delta`,
-`worktrunk`→`wt`, `ripgrep`→`rg`.
+The platform's own packages come **first**, because they provide the `curl`,
+`unzip` and `xz` that the vendor installers below them need — bun's aborts
+outright without `unzip`.
 
-Priority order: one universal installer that works on every OS > the distro's
-own package > a release binary. `cargo install` is deliberately unused — it
-compiles from source for minutes where prebuilt `.deb`/`.rpm`/bottles exist.
-
-Verified installing 28/28 tools on Debian 13, Fedora 44 and Arch, with no
+Verified installing every tool on Debian 13, Fedora 44 and Arch, with no
 Homebrew anywhere.
 
 ### Traps this encodes
 
 - Debian renames binaries: `fd-find`→`fdfind`, `bat`→`batcat`. Both would break
-  `alias cat='bat'`, so those two take upstream's `.deb` instead.
+  `alias cat='bat'`, so those take upstream's `.deb` instead.
 - `apt install delta` installs a completely unrelated tool.
 - Arch calls the GitHub CLI `github-cli`, and names helix's binary `helix`
   because `hex` already owns `hx`.
 - helix without its `runtime/` directory starts up **silently** broken.
-- `fonts-jetbrains-mono` is not the Nerd Font.
+- `bottom` is in no Debian or Fedora repo and its binary is `btm`.
 - bun's globals need a JS runtime, and bun is it — no node install required.
+
+## No templating
+
+There are no `.in` files and no placeholders. Config values are simply
+committed, because **these files are symlinks into the repo** — editing
+`~/.config/helix/config.toml` *is* editing the repo, so a template would only
+protect you from the thing the design already makes trivial.
+
+Tool configs live where each tool natively looks for them — `~/.config/ruff/`,
+`~/.sqlfluff` — so nothing needs an absolute path baked in, and per-project
+configs take precedence the way they should.
+
+The only generated file is `~/.config/git/local`, from two prompts.
 
 ## Scripts
 
