@@ -60,6 +60,11 @@ for v in 'a|b' 'a&b' 'a\b'; do
   else fail T9 "THEME=$v corrupted the render or aborted the run"; fi
 done
 
+# nothing chezmoi-shaped may survive into a rendered file, and no @VAR@ may be left over
+if grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" "$B/t1/.zshrc" "$B/t1/.zprofile" 2>/dev/null | grep -q .; then
+  fail T10 "unrendered placeholder or template left in: $(grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" 2>/dev/null | tr '\n' ' ')"
+else pass "T10 no leftover templates or placeholders"; fi
+
 sh -n "$DOTS/setup.sh" && pass "T7 sh -n" || fail T7 "sh -n"
 if command -v dash >/dev/null 2>&1; then
   H=$B/t8; mkdir -p "$H"

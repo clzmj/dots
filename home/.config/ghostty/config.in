@@ -18,4 +18,4 @@ window-padding-balance = true
 window-padding-color = background
 window-padding-x = 5
 window-padding-y = 5
-working-directory = {{ .chezmoi.homeDir }}{{ if eq .chezmoi.os "darwin" }}/Desktop{{ end }}
+working-directory = @DESKTOP@

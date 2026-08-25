@@ -82,6 +82,9 @@ confirm() {
   case "$_c" in y|Y|yes|YES) return 0 ;; *) return 1 ;; esac
 }
 
+# ghostty opens new windows here; macOS wants ~/Desktop, a Linux box wants $HOME
+if [ "$OS" = darwin ]; then DESKTOP="$HOME/Desktop"; else DESKTOP="$HOME"; fi
+
 say "configuration"
 ask NAME      "Full name (git commits)" "Carlos Lezama"
 ask EMAIL     "Email (git commits)"     "carlos@example.com"
@@ -191,13 +194,14 @@ emit()   { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN"; }   # mode src dst
 # whole match, `\` escapes. Escape each value once, then interpolate the copies.
 sedesc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
 R_HOME=$(sedesc "$HOME");     R_NAME=$(sedesc "$NAME");   R_EMAIL=$(sedesc "$EMAIL")
+R_DESKTOP=$(sedesc "$DESKTOP")
 R_FONT=$(sedesc "$FONT"); R_FONT_SIZE=$(sedesc "$FONT_SIZE"); R_THEME=$(sedesc "$THEME")
 
 same_render() { render "$1" > "$RTMP"; cmp -s "$RTMP" "$2"; }
 render() {
   sed -e "s|@HOME@|$R_HOME|g" -e "s|@NAME@|$R_NAME|g" -e "s|@EMAIL@|$R_EMAIL|g" \
       -e "s|@FONT@|$R_FONT|g" -e "s|@FONT_SIZE@|$R_FONT_SIZE|g" \
-      -e "s|@THEME@|$R_THEME|g" "$1"
+      -e "s|@THEME@|$R_THEME|g" -e "s|@DESKTOP@|$R_DESKTOP|g" "$1"
 }
 # home/ mirrors $HOME exactly (stow-style): home/.config/git/config -> ~/.config/git/config.
 # Names and hierarchy are preserved verbatim; only a .in suffix is meaningful.
