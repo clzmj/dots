@@ -118,7 +118,8 @@ gh_tag() {
 
 # expand %v (version), %d (deb arch), %r (rpm arch), %m (uname arch)
 _gh_asset() {
-  printf '%s' "$1" | sed "s|%v|$2|g; s|%d|$DEB_ARCH|g; s|%r|$RPM_ARCH|g; s|%m|$UNAME_ARCH|g"
+  case "$UNAME_ARCH" in x86_64) _alt=x64 ;; aarch64) _alt=arm64 ;; *) _alt=$UNAME_ARCH ;; esac
+  printf '%s' "$1" | sed "s|%v|$2|g; s|%d|$DEB_ARCH|g; s|%r|$RPM_ARCH|g; s|%m|$UNAME_ARCH|g; s|%A|$_alt|g"
 }
 
 _gh_fetch() {  # _gh_fetch REPO TEMPLATE  -> prints the downloaded path
@@ -150,20 +151,64 @@ gh_tar() {
   mkdir -p "$HOME/.local/bin" && install -m 755 "$_src" "$HOME/.local/bin/$3"
 }
 
+# gh_raw REPO ASSET BIN — a single-file asset (optionally .gz) -> ~/.local/bin
+gh_raw() {
+  _f=$(_gh_fetch "$1" "$2") || return 1
+  mkdir -p "$HOME/.local/bin"
+  case "$_f" in
+    *.gz) gzip -dc "$_f" > "$HOME/.local/bin/$3" ;;
+    *)    cat "$_f"      > "$HOME/.local/bin/$3" ;;
+  esac
+  chmod 755 "$HOME/.local/bin/$3"
+}
+
+# helix ships its grammars and themes in runtime/, and starts up SILENTLY
+# broken without them, so the tarball needs more than the bare binary.
+gh_helix() {
+  _f=$(_gh_fetch helix-editor/helix "helix-%v-$UNAME_ARCH-linux.tar.xz") || return 1
+  _x=$(mktemp -d); tar -xJf "$_f" -C "$_x" 2>/dev/null || return 1
+  _root=$(dirname "$(find "$_x" -type f -name hx -perm -u+x | head -1)")
+  [ -n "$_root" ] || return 1
+  mkdir -p "$HOME/.local/bin" "$HOME/.config/helix"
+  install -m 755 "$_root/hx" "$HOME/.local/bin/hx"
+  rm -rf "$HOME/.config/helix/runtime"
+  cp -R "$_root/runtime" "$HOME/.config/helix/runtime"
+}
+
+# Debian's golang is behind upstream; take the official tarball.
+gh_golang() {
+  _v=$(curl -fsSL https://go.dev/VERSION?m=text 2>/dev/null | head -1)
+  [ -n "$_v" ] || return 1
+  case "$UNAME_ARCH" in x86_64) _a=amd64 ;; aarch64) _a=arm64 ;; *) _a=$UNAME_ARCH ;; esac
+  _t=$(mktemp -d)
+  curl -fsSL -o "$_t/go.tgz" "https://go.dev/dl/${_v}.linux-${_a}.tar.gz" || return 1
+  sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf "$_t/go.tgz"
+}
+
 install_packages() {
-  if ! command -v brew >/dev/null 2>&1; then
-    for p in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
-      [ -x "$p" ] && eval "$("$p" shellenv)" && break
-    done
-  fi
-  if ! command -v brew >/dev/null 2>&1; then
-    say "installing homebrew"
-    NONINTERACTIVE=1 /bin/bash -c \
-      "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
-      || warn "homebrew install failed"
-    for p in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
-      [ -x "$p" ] && eval "$("$p" shellenv)" && break
-    done
+  # PATH first: bun installs to ~/.bun/bin and the very next rows need it.
+  PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"
+  export PATH
+  mkdir -p "$HOME/.local/bin"
+
+  # Homebrew is macOS-only. Linux uses distro packages and vendor installers,
+  # so there is no linuxbrew prefix anywhere in this script.
+  if [ "$OS" = darwin ]; then
+    if ! command -v brew >/dev/null 2>&1; then
+      for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [ -x "$p" ] && eval "$("$p" shellenv)" && break
+      done
+    fi
+    if ! command -v brew >/dev/null 2>&1; then
+      say "installing homebrew"
+      NONINTERACTIVE=1 /bin/bash -c \
+        "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
+        || warn "homebrew install failed"
+      for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+        [ -x "$p" ] && eval "$("$p" shellenv)" && break
+      done
+    fi
+    command -v brew >/dev/null 2>&1 && say "homebrew ready" || warn "homebrew unavailable"
   fi
 
   TAPS=""; BREWS=""; CASKS=""; SYS=""; BUNS=""; GOS=""
@@ -199,14 +244,14 @@ install_packages() {
     if   command -v apt-get >/dev/null 2>&1; then
       sudo apt-get update -qq && sudo apt-get install -y $SYS || warn "apt failed"
     elif command -v dnf >/dev/null 2>&1; then
-      sudo dnf install -y $SYS || warn "dnf failed"
+      sudo dnf install -y --allowerasing $SYS || warn "dnf failed"
     elif command -v pacman >/dev/null 2>&1; then
       sudo pacman -Sy --noconfirm $SYS || warn "pacman failed"
     else warn "no apt/dnf/pacman — install manually: $SYS"
     fi
   fi
 
-  if command -v brew >/dev/null 2>&1; then
+  if [ "$OS" = darwin ] && command -v brew >/dev/null 2>&1; then
     [ -n "$TAPS" ]  && { say "taps"; for t in $TAPS; do brew tap "$t" >/dev/null || warn "tap $t failed"; done; }
     # One unresolvable name makes brew refuse the WHOLE batch, so a single typo
     # would install nothing at all. Batch for speed, then fall back per-formula
@@ -219,7 +264,7 @@ install_packages() {
       fi
     fi
     [ -n "$CASKS" ] && [ "$OS" = darwin ] && { say "casks"; brew install --cask $CASKS || warn "some casks failed"; }
-  else
+  elif [ -n "$BREWS" ]; then
     warn "no homebrew — skipped: $BREWS"
   fi
 

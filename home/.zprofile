@@ -1,9 +1,8 @@
-# Homebrew: same manifest on both OSes, different prefix.
-if [ -x /opt/homebrew/bin/brew ]; then
-  eval "$(/opt/homebrew/bin/brew shellenv)"
-elif [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
-  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-fi
+# Homebrew is macOS-only; Linux uses distro packages and vendor installers.
+for _b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+  [ -x "$_b" ] && { eval "$("$_b" shellenv)"; break }
+done
+unset _b
 
 command -v hx &>/dev/null && export EDITOR=hx || export EDITOR=helix
 export GIT_CONFIG_GLOBAL="$HOME/.config/git/config"
@@ -16,5 +15,6 @@ export NODE_NO_WARNINGS=1
 export _ZO_DOCTOR=0
 [[ "$OSTYPE" == darwin* ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
 
-path=(~/.local/bin ~/.cargo/bin ~/.bun/bin ~/go/bin $path)
+# Everything that can receive a binary. Keep in sync with install_packages().
+path=(~/.local/bin ~/.bun/bin ~/go/bin ~/.cargo/bin /usr/local/go/bin $path)
 export PATH

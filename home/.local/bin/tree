@@ -1,0 +1,20 @@
+#!/usr/bin/env zsh
+# eza --tree, with the usual build/vendor directories pruned.
+set -u
+
+local ignore_patterns=(
+  "__pycache__"
+  ".DS_Store"
+  ".git"
+  ".next"
+  ".ruff_cache"
+  ".svelte-kit"
+  ".terraform"
+  ".venv"
+  "node_modules"
+  "target"
+  "venv"
+)
+
+local IFS='|'
+eza --tree --all --git --ignore-glob "${ignore_patterns[*]}" "$@"
