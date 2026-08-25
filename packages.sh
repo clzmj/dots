@@ -1,45 +1,78 @@
 #!/bin/sh
-# Every install command, per OS, in plain shell. Sourced by setup.sh — so this
-# is just a script: `sh -n packages.sh` checks it and there is no format to learn.
+# Every install command, per platform, in plain shell. Sourced by setup.sh — so
+# this is just a script: `sh -n packages.sh` checks it, no format to learn.
 #
-# Helpers, all no-ops when the tool is already present:
-#   have BIN                 is it installed?
+# Nothing here re-installs what is already present, so a second run is quiet
+# and needs no network.
+#
+#   pkg BIN [PACKAGE...]     this platform's package manager, unless BIN exists
+#   have BIN                 a bare word is a binary; anything with "/" is a path
 #   deb  REPO 'ASSET'        .deb from a GitHub release, installed via dpkg
 #   rpm  REPO 'ASSET'        .rpm, via rpm
 #   bin  REPO 'ASSET' NAME   single-file asset (optionally .gz) -> ~/.local/bin
 #   tarbin REPO 'ASSET' NAME one binary out of a release tarball
 #
-# SINGLE-QUOTE the asset name and use ordinary shell variables in it:
-#   $V         version, no leading v      $ARCH   uname -m  (x86_64 | aarch64)
-#   $DEB_ARCH  amd64 | arm64              $ARCH2  x64 | arm64
-#   $RPM_ARCH  x86_64 | aarch64
+# The thing to TEST is always the first argument, because package and binary
+# names diverge constantly: ripgrep->rg, git-delta->delta, bottom->btm.
+#
+# SINGLE-QUOTE asset names and use ordinary shell variables inside them:
+#   $V version (no leading v)   $DEB_ARCH amd64|arm64   $RPM_ARCH x86_64|aarch64
+#   $ARCH x86_64|aarch64        $ARCH2 x64|arm64
 
 # ── this platform's own packages ────────────────────────────────────────
-# These come first: they provide the curl, unzip and xz that the installers
-# below depend on (bun's aborts outright without unzip).
+# These come first: they provide the curl, unzip and xz the installers below
+# need (bun's aborts outright without unzip).
 case $PLATFORM in
 
 darwin)
-  brew tap xo/xo
-  brew tap hashicorp/tap
-  brew install git curl ripgrep fd bat eza fzf jq git-delta gh bottom helix \
-               taplo go awscli onefetch tokei \
-               zsh-autosuggestions zsh-syntax-highlighting \
-               xo/xo/usql hashicorp/tap/terraform hashicorp/tap/terraform-ls
-  brew install --cask font-jetbrains-mono-nerd-font
+  # macOS ships git and curl, so test for Homebrew's specifically
+  pkg "$HOMEBREW_PREFIX/bin/git"  git
+  pkg "$HOMEBREW_PREFIX/bin/curl" curl
+  pkg rg       ripgrep
+  pkg fd
+  pkg bat
+  pkg eza
+  pkg fzf
+  pkg jq
+  pkg delta    git-delta
+  pkg gh
+  pkg btm      bottom
+  pkg hx       helix
+  pkg taplo
+  pkg go
+  pkg aws      awscli
+  pkg onefetch
+  pkg tokei
+  pkg usql     xo/xo/usql
+  pkg terraform     hashicorp/tap/terraform
+  pkg terraform-ls  hashicorp/tap/terraform-ls
+  pkg "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh"         zsh-autosuggestions
+  pkg "$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" zsh-syntax-highlighting
+  have "$HOME/Library/Fonts/JetBrainsMonoNerdFont-Regular.ttf" ||
+    have /Library/Fonts/JetBrainsMonoNerdFont-Regular.ttf ||
+    brew install --cask font-jetbrains-mono-nerd-font
   ;;
 
 debian)
-  sudo apt-get update -qq
-  sudo apt-get install -y zsh git curl ripgrep eza fzf jq git-delta tokei \
-                          zsh-autosuggestions zsh-syntax-highlighting \
-                          xclip unzip xz-utils ca-certificates
+  pkg zsh
+  pkg git
+  pkg curl
+  pkg rg     ripgrep
+  pkg eza
+  pkg fzf
+  pkg jq
+  pkg delta  git-delta
+  pkg tokei
+  pkg xclip
+  pkg unzip
+  pkg xz     xz-utils
+  pkg /usr/share/ca-certificates ca-certificates
+  pkg /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh         zsh-autosuggestions
+  pkg /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh zsh-syntax-highlighting
   # apt installs these as `fdfind` and `batcat`, which breaks `alias cat='bat'`
   have fd       || deb sharkdp/fd          'fd_${V}_${DEB_ARCH}.deb'
   have bat      || deb sharkdp/bat         'bat_${V}_${DEB_ARCH}.deb'
-  # not in Debian at all; binary is btm
   have btm      || deb ClementTsang/bottom 'bottom_${V}-1_${DEB_ARCH}.deb'
-  # Debian's gh is far behind upstream
   have gh       || tarbin cli/cli          'gh_${V}_linux_${DEB_ARCH}.tar.gz' gh
   have onefetch || tarbin o2sh/onefetch    'onefetch-linux.tar.gz' onefetch
   have taplo    || bin tamasfe/taplo       'taplo-linux-${ARCH}.gz' taplo
@@ -48,10 +81,26 @@ debian)
   ;;
 
 fedora)
-  # minimal images ship curl-minimal, which plain `dnf install curl` conflicts with
-  sudo dnf install -y --allowerasing zsh git curl ripgrep fd-find bat eza fzf jq \
-                      git-delta tokei onefetch helix golang gh \
-                      zsh-autosuggestions zsh-syntax-highlighting xclip unzip xz
+  pkg zsh
+  pkg git
+  pkg curl
+  pkg rg     ripgrep
+  pkg fd     fd-find
+  pkg bat
+  pkg eza
+  pkg fzf
+  pkg jq
+  pkg delta  git-delta
+  pkg tokei
+  pkg onefetch
+  pkg hx     helix
+  pkg go     golang
+  pkg gh
+  pkg xclip
+  pkg unzip
+  pkg xz
+  pkg /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh         zsh-autosuggestions
+  pkg /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh zsh-syntax-highlighting
   have btm   || rpm ClementTsang/bottom 'bottom-${V}-1.${RPM_ARCH}.rpm' \
              || tarbin ClementTsang/bottom 'bottom_${ARCH}-unknown-linux-gnu.tar.gz' btm
   have taplo || bin tamasfe/taplo 'taplo-linux-${ARCH}.gz' taplo
@@ -61,9 +110,28 @@ arch)
   # Arch packages everything, current, and renames nothing except github-cli.
   # helix installs /usr/bin/helix because extra/hex already owns `hx`;
   # aliases.zsh handles either name.
-  sudo pacman -S --needed --noconfirm zsh git curl ripgrep fd bat eza fzf jq \
-       git-delta tokei onefetch helix bottom go github-cli taplo \
-       zsh-autosuggestions zsh-syntax-highlighting xclip unzip xz
+  pkg zsh
+  pkg git
+  pkg curl
+  pkg rg     ripgrep
+  pkg fd
+  pkg bat
+  pkg eza
+  pkg fzf
+  pkg jq
+  pkg delta  git-delta
+  pkg tokei
+  pkg onefetch
+  pkg helix
+  pkg btm    bottom
+  pkg go
+  pkg gh     github-cli
+  pkg taplo
+  pkg xclip
+  pkg unzip
+  pkg xz
+  pkg /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh         zsh-autosuggestions
+  pkg /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.plugin.zsh zsh-syntax-highlighting
   ;;
 
 esac
@@ -78,18 +146,22 @@ fi
 # ── every OS: one official installer each ───────────────────────────────
 have bun      || curl -fsSL https://bun.com/install | bash
 have claude   || curl -fsSL https://claude.ai/install.sh | bash
+have codex    || curl -fsSL https://chatgpt.com/codex/install.sh | sh
 have herdr    || curl -fsSL https://herdr.dev/install.sh | sh
 have uv       || curl -LsSf https://astral.sh/uv/install.sh | sh
 have zoxide   || curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
 have starship || curl -sS https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"
 have just     || curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --force --to "$HOME/.local/bin"
-# this installer appends /bin to the dir it is given
+# this installer appends /bin to the directory it is given
 have wt       || curl --proto '=https' --tlsv1.2 -LsSf https://github.com/max-sixty/worktrunk/releases/latest/download/worktrunk-installer.sh | WORKTRUNK_INSTALL_DIR="$HOME/.local" sh
 
 # ── every OS: language managers ─────────────────────────────────────────
-go_install golang.org/x/tools/gopls
-go_install github.com/showwin/speedtest-go
+have gopls     || go_install golang.org/x/tools/gopls
+have speedtest || go_install github.com/showwin/speedtest-go
 
-bun_install opencode-ai @openai/codex @earendil-works/pi-coding-agent \
-            bash-language-server typescript-language-server \
-            yaml-language-server vscode-langservers-extracted
+have opencode                   || bun_install opencode-ai
+have pi                         || bun_install @earendil-works/pi-coding-agent
+have bash-language-server       || bun_install bash-language-server
+have typescript-language-server || bun_install typescript-language-server
+have yaml-language-server       || bun_install yaml-language-server
+have vscode-json-language-server || bun_install vscode-langservers-extracted

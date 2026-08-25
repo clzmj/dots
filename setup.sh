@@ -109,7 +109,64 @@ ask EMAIL     "Email (git commits)"     "carlos@example.com"
 
 # ── packages ────────────────────────────────────────────────────────────
 # ── helpers available to packages.sh ────────────────────────────────────
-have() { command -v "$1" >/dev/null 2>&1; }
+# A bare word is a binary; anything with a "/" is a path (for packages that
+# install no binary at all, like the zsh plugins).
+_exists() { case "$1" in */*) [ -e "$1" ] ;; *) command -v "$1" >/dev/null 2>&1 ;; esac; }
+
+# packages.sh is a linear list of `have X || install-it` steps, so `have` can
+# narrate the whole run without packages.sh knowing anything about it: each call
+# first settles the step before it, then reports its own.
+N_OK=0; N_SKIP=0; N_FAIL=0; _pending=""; _pending_name=""
+_tick() { printf '  \033[32m✓\033[0m %s\n' "$1" >&5; }
+_skip() { printf '  \033[2m·\033[0m \033[2m%s\033[0m\n' "$1" >&5; }
+_bad()  { printf '  \033[31m✗\033[0m %s\n' "$1" >&5; }
+
+settle() {
+  [ -n "$_pending" ] || return 0
+  [ "$TTY" = 1 ] && printf '\r\033[K' >&4 2>/dev/null
+  if _exists "$_pending"; then _tick "$_pending_name"; N_OK=$((N_OK+1))
+  else _bad "$_pending_name"; N_FAIL=$((N_FAIL+1)); fi
+  _pending=""
+}
+
+have() {
+  settle
+  case "$1" in */*) _n=$(basename "$1" | sed 's/^\.//; s/\.plugin\.zsh$//; s/\.zsh$//') ;;
+                 *) _n=$1 ;; esac
+  if _exists "$1"; then _skip "$_n"; N_SKIP=$((N_SKIP+1)); return 0; fi
+  _pending=$1; _pending_name=$_n
+  [ "$TTY" = 1 ] && printf '  \033[33m⋯\033[0m %s' "$_n" >&4 2>/dev/null
+  return 1
+}
+
+bar() {
+  _done=$((N_OK+N_SKIP)); _tot=$((_done+N_FAIL)); [ "$_tot" -gt 0 ] || return 0
+  _w=28; _f=$(( _done * _w / _tot )); _i=0; _b=""
+  while [ $_i -lt $_w ]; do
+    if [ $_i -lt $_f ]; then _b="$_b█"; else _b="$_b░"; fi
+    _i=$((_i+1))
+  done
+  { printf '  \033[32m%s\033[0m  %d/%d  (%d new, %d already there' "$_b" "$_done" "$_tot" "$N_OK" "$N_SKIP"
+    [ "$N_FAIL" -gt 0 ] && printf ', \033[31m%d failed\033[0m' "$N_FAIL"
+    printf ')\n'; } >&5
+}
+
+# pkg BIN [PACKAGE...] — install PACKAGE(s) with this platform's package manager
+# unless BIN already resolves. PACKAGE defaults to BIN. The binary and the
+# package name diverge constantly (ripgrep->rg, git-delta->delta, bottom->btm),
+# which is why the thing to TEST is always the first argument.
+pkg() {
+  _b=$1; shift
+  [ $# -gt 0 ] || set -- "$_b"
+  have "$_b" && return 0
+  case $PLATFORM in
+    darwin) brew install "$@" ;;
+    debian) [ -n "${_APT_OK:-}" ] || { sudo apt-get update -qq; _APT_OK=1; }
+            sudo apt-get install -y "$@" ;;
+    fedora) sudo dnf install -y --allowerasing "$@" ;;
+    arch)   sudo pacman -S --needed --noconfirm "$@" ;;
+  esac
+}
 
 # /releases/latest redirects to /releases/tag/<v>; reading the redirect avoids
 # the GitHub API's 60-request/hour unauthenticated limit. (The API's asset list
@@ -174,7 +231,7 @@ go_release() {   # Debian's golang lags upstream
 }
 
 go_install() {
-  have go || { warn "go missing — skipped: $*"; return 0; }
+  _exists go || { warn "go missing — skipped: $*"; return 0; }
   for _g in "$@"; do go install "$_g@latest" || warn "  skipped: $_g"; done
   # keep the command named `speedtest`, as the Homebrew tap names it on macOS
   [ -x "$HOME/go/bin/speedtest-go" ] && ln -sfn "$HOME/go/bin/speedtest-go" "$HOME/.local/bin/speedtest"
@@ -182,12 +239,12 @@ go_install() {
 }
 
 bun_install() {
-  have bun || { warn "bun missing — skipped: $*"; return 0; }
+  _exists bun || { warn "bun missing — skipped: $*"; return 0; }
   bun add -g "$@" || warn "some bun globals failed"
   # `bun add -g` symlinks to an entry point whose shebang is `#!/usr/bin/env
   # node`, so these need node — except bun runs them itself. Wrap rather than
   # install a second runtime; apt's node is older than tsserver 6 requires.
-  have node && return 0
+  _exists node && return 0
   for _l in "$HOME"/.bun/bin/*; do
     [ -L "$_l" ] || continue
     _t=$(readlink -f "$_l" 2>/dev/null) || continue
@@ -206,10 +263,10 @@ install_packages() {
   mkdir -p "$HOME/.local/bin"
 
   if [ "$OS" = darwin ]; then
-    have brew || for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    _exists brew || for p in /opt/homebrew/bin/brew /usr/local/bin/brew; do
       [ -x "$p" ] && eval "$("$p" shellenv)" && break
     done
-    if ! have brew; then
+    if ! _exists brew; then
       say "installing homebrew"
       NONINTERACTIVE=1 /bin/bash -c \
         "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" \
@@ -218,15 +275,27 @@ install_packages() {
         [ -x "$p" ] && eval "$("$p" shellenv)" && break
       done
     fi
-    have brew || { warn "homebrew unavailable — skipping packages"; return 0; }
+    _exists brew || { warn "homebrew unavailable — skipping packages"; return 0; }
   fi
 
   say "packages"
   # packages.sh is a config file that happens to be shell: one package failing
   # should warn, not abort the whole setup, so -e is off while it runs.
+  # Third-party installers are chatty. Send everything packages.sh prints to a
+  # log and let the ticks speak; the log is shown only if something fails.
+  PKGLOG=$(mktemp)
+  exec 5>&1
   set +e
-  . "$DOTS/packages.sh"
+  { . "$DOTS/packages.sh"; settle; } >"$PKGLOG" 2>&1
   set -e
+  bar
+  if [ "$N_FAIL" -gt 0 ]; then
+    warn "$N_FAIL failed — last lines of the package log:"
+    tail -15 "$PKGLOG" >&2
+    warn "full log: $PKGLOG"
+  else
+    rm -f "$PKGLOG"
+  fi
 }
 
 if [ "${DOTS_SKIP_PACKAGES:-0}" = 1 ]; then
