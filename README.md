@@ -15,8 +15,7 @@ state, no `apply`. Edit `~/.config/helix/config.toml` and you have edited the
 repo. Commit and push; that's the whole workflow.
 
 ```
-home/      → ~/.<name>          zshrc, zprofile
-config/    → ~/.config/<name>   everything else
+home/      mirrors $HOME exactly — home/.config/git/config -> ~/.config/git/config
 packages.txt                    what gets installed
 setup.sh                        installs, links, asks two questions
 ```
@@ -31,7 +30,7 @@ Two mechanisms replace it:
 - **Everything else** uses its own include mechanism — `[include]` in git,
   `Include` in ssh.
 
-The one exception is `config/helix/languages.toml.in`: helix won't expand `~`,
+The one exception is `home/.config/helix/languages.toml.in`: helix won't expand `~`,
 so `setup.sh` expands `@HOME@` into `~/.config/helix/languages.toml`. That file
 is generated, not linked.
 
@@ -100,8 +99,8 @@ for languages not in daily use.
 ## No oh-my-zsh
 
 Startup went 170ms → ~30ms. omz's `git` plugin was the only part earning its
-keep; the eight aliases actually used live in `config/zsh/git.zsh`, and the
-directory aliases in `config/zsh/nav.zsh`.
+keep; the eight aliases actually used live in `home/.config/zsh/git.zsh`, and the
+directory aliases in `home/.config/zsh/nav.zsh`.
 
 `zshrc` runs `compinit -C`, which skips the completion-dump staleness check —
 that check alone was 114ms. Run `rehash-completions` after installing tools

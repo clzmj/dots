@@ -199,15 +199,12 @@ render() {
       -e "s|@FONT@|$R_FONT|g" -e "s|@FONT_SIZE@|$R_FONT_SIZE|g" \
       -e "s|@THEME@|$R_THEME|g" "$1"
 }
+# home/ mirrors $HOME exactly (stow-style): home/.config/git/config -> ~/.config/git/config.
+# Names and hierarchy are preserved verbatim; only a .in suffix is meaningful.
 for f in $(find "$DOTS/home" -type f | sort); do
   rel=${f#"$DOTS"/home/}
-  case "$rel" in *.in) emit render "$f" "$HOME/.${rel%.in}" ;;
-                 *)    emit link   "$f" "$HOME/.$rel" ;; esac
-done
-for f in $(find "$DOTS/config" -type f | sort); do
-  rel=${f#"$DOTS"/config/}
-  case "$rel" in *.in) emit render "$f" "$HOME/.config/${rel%.in}" ;;
-                 *)    emit link   "$f" "$HOME/.config/$rel" ;; esac
+  case "$rel" in *.in) emit render "$f" "$HOME/${rel%.in}" ;;
+                 *)    emit link   "$f" "$HOME/$rel" ;; esac
 done
 emit write - "$HOME/.config/git/local"
 

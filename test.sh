@@ -14,7 +14,7 @@ dirty() { rm -rf "$1"; mkdir -p "$1/.config/helix"; echo MINE > "$1/.zshrc"
           echo 'theme="mine"' > "$1/.config/helix/config.toml"; }
 
 H=$B/t1; mkdir -p "$H"; run "$H" DOTS_YES=1 >/dev/null
-[ "$(readlink "$H/.zshrc")" = "$DOTS/home/zshrc" ] && pass "T1 zshrc symlinked" || fail T1 "not a symlink"
+[ "$(readlink "$H/.zshrc")" = "$DOTS/home/.zshrc" ] && pass "T1 zshrc symlinked" || fail T1 "not a symlink"
 grep -q 'theme = "vesper"'   "$H/.config/helix/config.toml" && pass "T1 theme rendered"  || fail T1 theme
 grep -q 'carlos@example.com' "$H/.config/git/local"          && pass "T1 git identity"   || fail T1 identity
 [ "$(grep -c . "$H/.config/dots/answers")" = 5 ]             && pass "T1 answers cached" || fail T1 answers
