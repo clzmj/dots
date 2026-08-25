@@ -68,6 +68,13 @@ arch)
 
 esac
 
+# ── Linux, any distro ───────────────────────────────────────────────────
+# tailscale's installer detects the distro and wires up the right repo, so one
+# line covers debian/fedora/arch. macOS uses the app, not this.
+if [ "$OS" = linux ]; then
+  have tailscale || curl -fsSL https://tailscale.com/install.sh | sh
+fi
+
 # ── every OS: one official installer each ───────────────────────────────
 have bun      || curl -fsSL https://bun.com/install | bash
 have claude   || curl -fsSL https://claude.ai/install.sh | bash
