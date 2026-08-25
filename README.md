@@ -85,20 +85,49 @@ writes to the right file and `~/.gitconfig` never comes back.
 ## packages.txt
 
 ```
-manager  package  [os]
+kind  name  os  spec...
 ```
 
-`manager` is `tap`, `brew`, `cask`, `sys` (apt/dnf/pacman), `bun`, or `sh`
-(a `bin` to check for and a command to run if it's missing). Omit `os` for both.
+`kind` is `tap`/`brew`/`cask` (**macOS only** — there is no Homebrew on Linux
+here), `sys` (apt/dnf/pacman), `gh` (a prebuilt release), `sh` (an official
+installer script), `go`, or `bun`. `os` is `-`, `darwin`, `linux`, or a specific
+`debian`/`fedora`/`arch`.
 
-Keep it minimal — project tooling belongs in the project. Deliberately cut,
-re-add if you miss them: `tmux` (replaced by herdr), `ollama`, `docker`,
-`terraform`, `postgresql`, `rustup`, `deno`, `neovim`, and the LSPs and SDKs
-for languages not in daily use.
+`name` is what gets **tested for**, which matters more than it looks: package
+and binary names diverge constantly — `bottom`→`btm`, `git-delta`→`delta`,
+`worktrunk`→`wt`, `ripgrep`→`rg`.
+
+Priority order: one universal installer that works on every OS > the distro's
+own package > a release binary. `cargo install` is deliberately unused — it
+compiles from source for minutes where prebuilt `.deb`/`.rpm`/bottles exist.
+
+Verified installing 28/28 tools on Debian 13, Fedora 44 and Arch, with no
+Homebrew anywhere.
+
+### Traps this encodes
+
+- Debian renames binaries: `fd-find`→`fdfind`, `bat`→`batcat`. Both would break
+  `alias cat='bat'`, so those two take upstream's `.deb` instead.
+- `apt install delta` installs a completely unrelated tool.
+- Arch calls the GitHub CLI `github-cli`, and names helix's binary `helix`
+  because `hex` already owns `hx`.
+- helix without its `runtime/` directory starts up **silently** broken.
+- `fonts-jetbrains-mono` is not the Nerd Font.
+- bun's globals need a JS runtime, and bun is it — no node install required.
+
+## Scripts
+
+Standalone helpers live in `home/.local/bin/` as real executables, not shell
+functions: `www`, `blame-menu`, `kserver`, `notify`, `tree`, `sysupdate`, and
+`machine-report`.
+
+`nd` and `rehash-completions` stay functions in `home/.config/zsh/` because they
+have to act on the calling shell — a subprocess cannot `cd` for you or run
+`compinit` in your shell.
 
 ## No oh-my-zsh
 
-Startup went 170ms → ~30ms. omz's `git` plugin was the only part earning its
+Startup went 170ms → ~70ms. omz's `git` plugin was the only part earning its
 keep; the eight aliases actually used live in `home/.config/zsh/git.zsh`, and the
 directory aliases in `home/.config/zsh/nav.zsh`.
 
