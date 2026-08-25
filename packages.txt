@@ -43,7 +43,6 @@ brew  gh                             darwin
 brew  bottom                         darwin
 brew  helix                          darwin
 brew  taplo                          darwin
-brew  marksman                       darwin
 brew  go                             darwin
 brew  awscli                         darwin
 brew  hashicorp/tap/terraform        darwin
@@ -109,7 +108,6 @@ sys   helix    arch
 gh    hx       debian  gh_helix
 
 gh    taplo    linux   gh_raw tamasfe/taplo "taplo-linux-%m.gz" taplo
-gh    marksman linux   gh_raw artempyanykh/marksman "marksman-linux-%A" marksman
 
 # Debian's golang is behind; Fedora and Arch track upstream.
 sys   golang   fedora
