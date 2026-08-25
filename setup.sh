@@ -39,6 +39,21 @@ case "$(uname -s)" in
   *) die "unsupported OS: $(uname -s) (Windows is not supported)" ;;
 esac
 
+# Which Linux, and which arch names its packages use. Needed because release
+# assets embed both (bottom ships bottom_0.14.8-1_arm64.deb, not a generic name).
+DISTRO=other
+if [ "$OS" = linux ]; then
+  if   command -v apt-get >/dev/null 2>&1; then DISTRO=debian
+  elif command -v dnf     >/dev/null 2>&1; then DISTRO=fedora
+  elif command -v pacman  >/dev/null 2>&1; then DISTRO=arch
+  fi
+fi
+case "$(uname -m)" in
+  x86_64|amd64)  DEB_ARCH=amd64; RPM_ARCH=x86_64;  UNAME_ARCH=x86_64 ;;
+  aarch64|arm64) DEB_ARCH=arm64; RPM_ARCH=aarch64; UNAME_ARCH=aarch64 ;;
+  *)             DEB_ARCH=$(uname -m); RPM_ARCH=$(uname -m); UNAME_ARCH=$(uname -m) ;;
+esac
+
 # Can we prompt? curl|sh has a pipe on stdin but usually still has a tty.
 # [ -r /dev/tty ] lies (it can pass where opening fails), so actually open it:
 # fd 3 reads the terminal, fd 4 writes to it, and stdin stays free for the pipe.
@@ -93,6 +108,48 @@ ask FONT_SIZE "Terminal font size"      "12"
 ask THEME     "Theme (helix + herdr)"   "vesper"
 
 # ── packages ────────────────────────────────────────────────────────────
+# ── github release helpers (available to `gh` rows in packages.txt) ─────
+# /releases/latest redirects to /releases/tag/<v>, so reading the redirect gets
+# the version without the GitHub API's 60-request/hour unauthenticated limit.
+gh_tag() {
+  curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" 2>/dev/null |
+    sed 's|.*/tag/||'
+}
+
+# expand %v (version), %d (deb arch), %r (rpm arch), %m (uname arch)
+_gh_asset() {
+  printf '%s' "$1" | sed "s|%v|$2|g; s|%d|$DEB_ARCH|g; s|%r|$RPM_ARCH|g; s|%m|$UNAME_ARCH|g"
+}
+
+_gh_fetch() {  # _gh_fetch REPO TEMPLATE  -> prints the downloaded path
+  _tag=$(gh_tag "$1"); [ -n "$_tag" ] || return 1
+  _asset=$(_gh_asset "$2" "${_tag#v}")
+  _dir=$(mktemp -d)
+  curl -fsSL --retry 2 -o "$_dir/$_asset" \
+    "https://github.com/$1/releases/download/$_tag/$_asset" || return 1
+  printf '%s' "$_dir/$_asset"
+}
+
+# gh_pkg REPO ASSET — install a .deb/.rpm through the system package manager so
+# the distro keeps ownership of the files, rather than dropping a loose binary.
+gh_pkg() {
+  _f=$(_gh_fetch "$1" "$2") || return 1
+  case "$_f" in
+    *.deb) sudo dpkg -i "$_f" >/dev/null 2>&1 || sudo apt-get install -f -y >/dev/null 2>&1 ;;
+    *.rpm) sudo rpm -Uvh --replacepkgs "$_f" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
+# gh_tar REPO ASSET BIN [STRIP] — extract one binary into ~/.local/bin
+gh_tar() {
+  _f=$(_gh_fetch "$1" "$2") || return 1
+  _x=$(mktemp -d); tar -xzf "$_f" -C "$_x" 2>/dev/null || return 1
+  _src=$(find "$_x" -type f -name "$3" -perm -u+x 2>/dev/null | head -1)
+  [ -n "$_src" ] || return 1
+  mkdir -p "$HOME/.local/bin" && install -m 755 "$_src" "$HOME/.local/bin/$3"
+}
+
 install_packages() {
   if ! command -v brew >/dev/null 2>&1; then
     for p in /opt/homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew; do
@@ -109,18 +166,25 @@ install_packages() {
     done
   fi
 
-  TAPS=""; BREWS=""; CASKS=""; SYS=""; BUNS=""
+  TAPS=""; BREWS=""; CASKS=""; SYS=""; BUNS=""; GOS=""
   SH_SPECS=$(mktemp); trap 'rm -f "$SH_SPECS"' EXIT
 
   # `read` splits on whitespace runs and drops the remainder into $rest, so the
   # column padding in packages.txt costs nothing.
-  while read -r mgr pkg rest || [ -n "$mgr" ]; do
+  # kind  name  os  spec...   — `os` is darwin|linux|debian|fedora|arch or `-`
+  while read -r mgr pkg os spec || [ -n "$mgr" ]; do
     case "$mgr" in ''|'#'*) continue ;; esac
-    if [ "$mgr" = "sh" ]; then
-      printf '%s\t%s\n' "$pkg" "$rest" >> "$SH_SPECS"; continue
+    case "$os" in
+      -|'') : ;;
+      darwin|linux)          [ "$os" = "$OS" ]     || continue ;;
+      debian|fedora|arch)    [ "$os" = "$DISTRO" ] || continue ;;
+      *) warn "unknown os '$os' on: $mgr $pkg"; continue ;;
+    esac
+    if [ "$mgr" = "sh" ] || [ "$mgr" = "gh" ]; then
+      printf '%s\t%s\n' "$pkg" "$spec" >> "$SH_SPECS"; continue
     fi
-    case "$rest" in darwin|linux) [ "$rest" = "$OS" ] || continue ;; esac
     case "$mgr" in
+      go)   GOS="$GOS $pkg" ;;
       tap)  TAPS="$TAPS $pkg" ;;
       brew) BREWS="$BREWS $pkg" ;;
       cask) CASKS="$CASKS $pkg" ;;
@@ -163,14 +227,46 @@ install_packages() {
     while IFS="$(printf '\t')" read -r bin cmd; do
       command -v "$bin" >/dev/null 2>&1 && continue
       say "installing $bin"
-      sh -c "$cmd" || warn "$bin install failed"
+      # eval, not `sh -c`: gh rows call the gh_pkg/gh_tar helpers defined above
+      eval "$cmd" || warn "$bin install failed"
     done < "$SH_SPECS"
+  fi
+
+  # go install builds a real standalone binary into ~/go/bin and needs only the
+  # go toolchain — genuinely multi-OS, unlike bun/npm CLIs which still need node.
+  if [ -n "$GOS" ]; then
+    if command -v go >/dev/null 2>&1; then
+      say "go install"
+      for g in $GOS; do go install "$g@latest" || warn "  skipped: $g"; done
+      # keep the command named `speedtest` as it is on macOS via the tap
+      if [ -x "$HOME/go/bin/speedtest-go" ]; then
+        mkdir -p "$HOME/.local/bin"
+        ln -sfn "$HOME/go/bin/speedtest-go" "$HOME/.local/bin/speedtest"
+      fi
+    else warn "go missing — skipped: $GOS"
+    fi
   fi
 
   if [ -n "$BUNS" ]; then
     if command -v bun >/dev/null 2>&1 || [ -x "$HOME/.bun/bin/bun" ]; then
       PATH="$HOME/.bun/bin:$PATH"
       say "bun globals"; bun add -g $BUNS || warn "some bun globals failed"
+      # `bun add -g` symlinks straight to a cli.js whose shebang is
+      # `#!/usr/bin/env node`, so these need node — except bun runs them fine
+      # itself. Wrap them rather than install a second runtime; apt's node is
+      # 20.x anyway, below what typescript-language-server 6 requires.
+      if ! command -v node >/dev/null 2>&1; then
+        for _l in "$HOME"/.bun/bin/*; do
+          [ -L "$_l" ] || continue
+          _t=$(readlink -f "$_l" 2>/dev/null) || continue
+          # the shebang is the only reliable test — yaml-language-server's entry
+          # point has no .js extension, so filtering on that misses it
+          head -1 "$_t" 2>/dev/null | grep -q 'env node' || continue
+          rm -f "$_l"
+          printf '#!/bin/sh\nexec "%s/.bun/bin/bun" "%s" "$@"\n' "$HOME" "$_t" > "$_l"
+          chmod +x "$_l"
+        done
+      fi
     else warn "bun missing — skipped: $BUNS"
     fi
   fi

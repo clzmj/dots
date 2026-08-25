@@ -1,73 +1,97 @@
-# manager  package  [os]
-#   manager: tap | brew | cask | bun | sh
-#   os:      darwin | linux  (omit = both)
-# Everything here is installed on every machine. Keep it minimal — project
-# tooling belongs in the project, not in your shell.
+# kind  name  os  spec...
+#
+#   kind : tap | brew | cask  Homebrew (macOS)
+#          sys               distro package (apt / dnf / pacman)
+#          gh                prebuilt release from GitHub — spec is a command
+#          sh                official installer script — spec is a command
+#          bun               bun add -g
+#   name : what to TEST FOR. Package and binary names diverge constantly
+#          (bottom→btm, git-delta→delta), so this is the binary for gh/sh rows.
+#   os   : - | darwin | linux | debian | fedora | arch
+#   spec : for gh/sh rows, the command to run when `name` is missing.
+#          gh rows may use gh_pkg / gh_tar, and %v %d %r %m expand to the
+#          version and the deb / rpm / uname arch names.
 
 # ── taps ────────────────────────────────────────────────────────────────
-tap   showwin/speedtest
-tap   xo/xo                            darwin
+tap   xo/xo                           darwin
+tap   hashicorp/tap                   -
 
 # ── shell ───────────────────────────────────────────────────────────────
-brew  zsh
-brew  starship
-brew  zoxide
-brew  fzf
-brew  zsh-autosuggestions
-brew  zsh-syntax-highlighting
+brew  zsh                             -
+brew  starship                        -
+brew  zoxide                          -
+brew  fzf                             -
+brew  zsh-autosuggestions             -
+brew  zsh-syntax-highlighting         -
 
 # ── core CLI ────────────────────────────────────────────────────────────
-brew  bat
-brew  eza
-brew  fd
-brew  ripgrep
-brew  jq
-brew  curl
-brew  git
-brew  git-delta
-brew  gh
-brew  just
-brew  bottom
-brew  worktrunk
-brew  showwin/speedtest/speedtest
+brew  bat                             -
+brew  eza                             -
+brew  fd                              -
+brew  ripgrep                         -
+brew  jq                              -
+brew  curl                            -
+brew  git                             -
+brew  git-delta                       -
+brew  gh                              -
+brew  just                            -
+brew  worktrunk                       -
+
+# bottom is NOT packaged by Debian or Fedora, and its binary is `btm`, not
+# `bottom`. Upstream ships .deb and .rpm, so install those through the system
+# package manager and let the distro own the files. No aarch64 .rpm exists,
+# hence the tarball fallback on Fedora.
+brew  bottom                          darwin
+gh    btm                             debian  gh_pkg ClementTsang/bottom "bottom_%v-1_%d.deb"
+gh    btm                             fedora  gh_pkg ClementTsang/bottom "bottom-%v-1.%r.rpm" || gh_tar ClementTsang/bottom "bottom_%m-unknown-linux-gnu.tar.gz" btm
+sys   bottom                          arch
 
 # ── editor + language servers ───────────────────────────────────────────
-brew  helix
-brew  gopls
-brew  taplo
-brew  marksman
-brew  bash-language-server
-brew  typescript-language-server
-brew  yaml-language-server
-brew  vscode-langservers-extracted
+brew  helix                           -
+brew  taplo                           -
+brew  marksman                        -
 
 # ── languages / runtimes ────────────────────────────────────────────────
-brew  go
-brew  uv
+brew  go                              -
+brew  uv                              -
 
-# ── cloud / client work (kept deliberately: 81 aws + live terraform in history)
-tap   hashicorp/tap
-brew  awscli
-brew  hashicorp/tap/terraform
-brew  hashicorp/tap/terraform-ls
+# go install: builds a standalone binary, same command on every OS, needs only
+# the go toolchain. Preferred over a per-distro package or a Homebrew tap.
+# (cargo install is deliberately NOT used for the Rust CLIs above — it compiles
+# from source, minutes per crate, where prebuilt .deb/.rpm/bottles already exist.)
+go    golang.org/x/tools/gopls         -
+go    github.com/showwin/speedtest-go  -
+
+# ── cloud / client work ─────────────────────────────────────────────────
+brew  awscli                          -
+brew  hashicorp/tap/terraform         -
+brew  hashicorp/tap/terraform-ls      -
 
 # ── db ──────────────────────────────────────────────────────────────────
-brew  xo/xo/usql                     darwin
+brew  xo/xo/usql                      darwin
 
 # ── fonts (macOS) ───────────────────────────────────────────────────────
-cask  font-jetbrains-mono-nerd-font  darwin
+cask  font-jetbrains-mono-nerd-font   darwin
 
 # ── linux-only: things brew shouldn't own ───────────────────────────────
-sys   zsh      linux
-sys   xclip    linux
-sys   unzip    linux
+sys   zsh                             linux
+sys   xclip                           linux
+sys   unzip                           linux
 
 # ── self-installing ─────────────────────────────────────────────────────
-sh    bun      curl -fsSL https://bun.com/install | bash
-sh    claude   curl -fsSL https://claude.ai/install.sh | bash
-sh    herdr    curl -fsSL https://herdr.dev/install.sh | sh
+sh    bun      -   curl -fsSL https://bun.com/install | bash
+sh    claude   -   curl -fsSL https://claude.ai/install.sh | bash
+sh    herdr    -   curl -fsSL https://herdr.dev/install.sh | sh
 
 # ── bun globals ─────────────────────────────────────────────────────────
-bun   opencode-ai
-bun   @openai/codex
-bun   @earendil-works/pi-coding-agent
+bun   opencode-ai                     -
+bun   @openai/codex                   -
+bun   @earendil-works/pi-coding-agent -
+
+# Node language servers: one bun command on every OS, and bun is their runtime
+# too, so no node install is needed. (Test for a binary the package provides —
+# vscode-langservers-extracted ships five and none is named after the package.)
+bun   bash-language-server            -
+bun   typescript-language-server      -
+bun   yaml-language-server            -
+bun   vscode-langservers-extracted    -
