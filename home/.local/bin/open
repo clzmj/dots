@@ -1,0 +1,5 @@
+#!/bin/sh
+# open(1) for Linux. Defers to macOS's own /usr/bin/open when present, so this
+# one file is safe to install on every OS — no per-OS link logic needed.
+[ -x /usr/bin/open ] && exec /usr/bin/open "$@"
+exec xdg-open "$@" >/dev/null 2>&1

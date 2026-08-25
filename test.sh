@@ -65,6 +65,15 @@ if grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" "$B/t1/.zshrc" "$B/t1/.zprofile" 2
   fail T10 "unrendered placeholder or template left in: $(grep -rlE '\{\{|@[A-Z_]+@' "$B/t1/.config" 2>/dev/null | tr '\n' ' ')"
 else pass "T10 no leftover templates or placeholders"; fi
 
+# A file dropped from the repo must not leave a dangling symlink behind — a
+# broken link still matches globs like ~/.config/zsh/*.zsh.
+H=$B/t1; ln -sfn "$DOTS/home/.config/zsh/gone.zsh" "$H/.config/zsh/gone.zsh"
+ln -sfn /etc/hostname "$H/.config/not-ours"          # must survive: not ours
+run "$H" DOTS_YES=1 >/dev/null
+if [ -L "$H/.config/zsh/gone.zsh" ]; then fail T11 "stale link not pruned"
+elif [ ! -L "$H/.config/not-ours" ]; then fail T11 "pruned a link it did not create"
+else pass "T11 prunes only its own stale links"; fi
+
 sh -n "$DOTS/setup.sh" && pass "T7 sh -n" || fail T7 "sh -n"
 if command -v dash >/dev/null 2>&1; then
   H=$B/t8; mkdir -p "$H"

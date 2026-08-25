@@ -1,7 +1,8 @@
 [[language]]
 name = "sql"
 auto-format = true
-formatter = { command = "sqlfluff", args = [
+formatter = { command = "uvx", args = [
+  "sqlfluff",
   "format",
   "--nocolor",
   "--config",

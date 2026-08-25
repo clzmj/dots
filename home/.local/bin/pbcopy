@@ -1,0 +1,5 @@
+#!/bin/sh
+# pbcopy(1) for Linux. Wayland first, then X11.
+[ -x /usr/bin/pbcopy ] && exec /usr/bin/pbcopy
+command -v wl-copy >/dev/null 2>&1 && exec wl-copy
+exec xclip -selection clipboard

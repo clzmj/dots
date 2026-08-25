@@ -16,8 +16,6 @@ BORDERS_AND_PADDING=7
 
 report_title="${TR100_TITLE:-UNITED STATES GRAPHICS COMPANY}"
 last_login_ip_present=0
-zfs_present=0
-zfs_filesystem="zroot/ROOT/os"
 
 # ${#var} counts BYTES unless the locale is UTF-8, which would make every
 # box-drawing char measure 3 and truncate the bar graphs. Probe, don't assume.
@@ -60,8 +58,7 @@ set_current_len() {
         "$cpu_cores_per_socket vCPU(s) / $cpu_sockets Socket(s)" \
         "$cpu_hypervisor" "$cpu_freq GHz"                        \
         "$cpu_1min_bar_graph" "$cpu_5min_bar_graph" "$cpu_15min_bar_graph" \
-        "$zfs_used_gb/$zfs_available_gb GB [$disk_percent%]"     \
-        "$disk_bar_graph" "$zfs_health"                          \
+        "$disk_bar_graph" \
         "$root_used_gb/$root_total_gb GB [$disk_percent%]"       \
         "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"   \
         "${mem_bar_graph}" "$last_login_time" "$last_login_ip"   \
@@ -235,21 +232,11 @@ collect_mem() {
 }
 
 collect_disk() {
-    if command -v zfs >/dev/null 2>&1 && grep -q zfs /proc/mounts 2>/dev/null; then
-        zfs_present=1
-        zfs_health=$(zpool status -x zroot 2>/dev/null | grep -q "is healthy" && echo "HEALTH O.K.")
-        zfs_available=$(zfs get -o value -Hp available "$zfs_filesystem" 2>/dev/null)
-        zfs_used=$(zfs get -o value -Hp used "$zfs_filesystem" 2>/dev/null)
-        zfs_available_gb=$(awk -v v="$zfs_available" 'BEGIN{printf "%.2f", v/1073741824}')
-        zfs_used_gb=$(awk -v v="$zfs_used" 'BEGIN{printf "%.2f", v/1073741824}')
-        disk_percent=$(awk -v u="$zfs_used" -v a="$zfs_available" 'BEGIN{printf "%.2f", (u/a)*100}')
-    else
-        root_used=$(df -m / | awk 'NR==2 {print $3}')
-        root_total=$(df -m / | awk 'NR==2 {print $2}')
-        root_total_gb=$(awk -v t="$root_total" 'BEGIN{printf "%.2f", t/1024}')
-        root_used_gb=$(awk -v u="$root_used" 'BEGIN{printf "%.2f", u/1024}')
-        disk_percent=$(awk -v u="$root_used" -v t="$root_total" 'BEGIN{printf "%.2f", (u/t)*100}')
-    fi
+    root_used=$(df -m / | awk 'NR==2 {print $3}')
+    root_total=$(df -m / | awk 'NR==2 {print $2}')
+    root_total_gb=$(awk -v t="$root_total" 'BEGIN{printf "%.2f", t/1024}')
+    root_used_gb=$(awk -v u="$root_used" 'BEGIN{printf "%.2f", u/1024}')
+    disk_percent=$(awk -v u="$root_used" -v t="$root_total" 'BEGIN{printf "%.2f", (u/t)*100}')
 }
 
 collect_login() {
@@ -303,9 +290,7 @@ cpu_1min_bar_graph=$(bar_graph "$load_avg_1min" "$cpu_cores")
 cpu_5min_bar_graph=$(bar_graph "$load_avg_5min" "$cpu_cores")
 cpu_15min_bar_graph=$(bar_graph "$load_avg_15min" "$cpu_cores")
 mem_bar_graph=$(bar_graph "$mem_used" "$mem_total")
-if [ $zfs_present -eq 1 ]; then disk_bar_graph=$(bar_graph "$zfs_used" "$zfs_available")
-else disk_bar_graph=$(bar_graph "$root_used" "$root_total"); fi
-
+disk_bar_graph=$(bar_graph "$root_used" "$root_total")
 PRINT_HEADER
 PRINT_CENTERED_DATA "$report_title"
 PRINT_CENTERED_DATA "TR-100 MACHINE REPORT"
@@ -330,14 +315,8 @@ PRINT_DATA "LOAD  1m" "$cpu_1min_bar_graph"
 PRINT_DATA "LOAD  5m" "$cpu_5min_bar_graph"
 PRINT_DATA "LOAD 15m" "$cpu_15min_bar_graph"
 PRINT_DIVIDER
-if [ $zfs_present -eq 1 ]; then
-    PRINT_DATA "VOLUME" "$zfs_used_gb/$zfs_available_gb GB [$disk_percent%]"
-    PRINT_DATA "DISK USAGE" "$disk_bar_graph"
-    PRINT_DATA "ZFS HEALTH" "$zfs_health"
-else
-    PRINT_DATA "VOLUME" "$root_used_gb/$root_total_gb GB [$disk_percent%]"
-    PRINT_DATA "DISK USAGE" "$disk_bar_graph"
-fi
+PRINT_DATA "VOLUME" "$root_used_gb/$root_total_gb GB [$disk_percent%]"
+PRINT_DATA "DISK USAGE" "$disk_bar_graph"
 PRINT_DIVIDER
 PRINT_DATA "MEMORY" "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"
 PRINT_DATA "USAGE" "${mem_bar_graph}"

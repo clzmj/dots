@@ -89,6 +89,13 @@ gh    btm      debian  gh_pkg ClementTsang/bottom "bottom_%v-1_%d.deb"
 gh    btm      fedora  gh_pkg ClementTsang/bottom "bottom-%v-1.%r.rpm" || gh_tar ClementTsang/bottom "bottom_%m-unknown-linux-gnu.tar.gz" btm
 sys   bottom   arch
 
+# repo-info needs these. tokei is packaged everywhere; onefetch is missing only
+# from Debian. scc was dropped — it duplicates tokei.
+sys   tokei    linux
+sys   onefetch fedora
+sys   onefetch arch
+gh    onefetch debian  gh_tar o2sh/onefetch "onefetch-linux.tar.gz" onefetch
+
 # gh: Arch calls the package github-cli; Debian's own is far behind upstream.
 sys   gh          fedora
 sys   github-cli  arch

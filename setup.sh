@@ -111,11 +111,6 @@ ask THEME     "Theme (helix + herdr)"   "vesper"
 # ── github release helpers (available to `gh` rows in packages.txt) ─────
 # /releases/latest redirects to /releases/tag/<v>, so reading the redirect gets
 # the version without the GitHub API's 60-request/hour unauthenticated limit.
-gh_tag() {
-  curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$1/releases/latest" 2>/dev/null |
-    sed 's|.*/tag/||'
-}
-
 # expand %v (version), %d (deb arch), %r (rpm arch), %m (uname arch)
 _gh_asset() {
   case "$UNAME_ARCH" in x86_64) _alt=x64 ;; aarch64) _alt=arm64 ;; *) _alt=$UNAME_ARCH ;; esac
@@ -123,7 +118,11 @@ _gh_asset() {
 }
 
 _gh_fetch() {  # _gh_fetch REPO TEMPLATE  -> prints the downloaded path
-  _tag=$(gh_tag "$1"); [ -n "$_tag" ] || return 1
+  # /releases/latest redirects to /releases/tag/<v>, so reading the redirect
+  # gets the version without the GitHub API's 60-req/hour unauthenticated limit.
+  _tag=$(curl -fsSL -o /dev/null -w '%{url_effective}' \
+    "https://github.com/$1/releases/latest" 2>/dev/null | sed 's|.*/tag/||')
+  [ -n "$_tag" ] || return 1
   _asset=$(_gh_asset "$2" "${_tag#v}")
   _dir=$(mktemp -d)
   curl -fsSL --retry 2 -o "$_dir/$_asset" \
@@ -386,6 +385,15 @@ stash() {
 }
 
 # ── apply ───────────────────────────────────────────────────────────────
+# A file removed from the repo leaves the symlink we created pointing nowhere,
+# and a dangling link still matches globs like ~/.config/zsh/*.zsh. Prune links
+# that point into $DOTS but no longer resolve — only ever our own.
+find "$HOME/.config" "$HOME" -maxdepth 5 -type l 2>/dev/null | while IFS= read -r _l; do
+  case "$(readlink "$_l" 2>/dev/null)" in
+    "$DOTS"/*) [ -e "$_l" ] || { rm -f "$_l"; warn "pruned stale link ${_l#"$HOME"/}"; } ;;
+  esac
+done
+
 say "linking config"
 while IFS="$(printf '\t')" read -r mode src dst; do
   if [ "$mode" = link ] && [ -L "$dst" ] && [ "$(readlink "$dst")" = "$src" ]; then continue; fi

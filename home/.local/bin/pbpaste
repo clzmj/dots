@@ -1,0 +1,5 @@
+#!/bin/sh
+# pbpaste(1) for Linux. Wayland first, then X11.
+[ -x /usr/bin/pbpaste ] && exec /usr/bin/pbpaste
+command -v wl-paste >/dev/null 2>&1 && exec wl-paste
+exec xclip -selection clipboard -o
