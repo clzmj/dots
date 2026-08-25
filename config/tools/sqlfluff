@@ -1,0 +1,8 @@
+[sqlfluff]
+dialect = postgres
+
+[sqlfluff:layout:type:comma]
+line_position = leading
+
+[sqlfluff:rules]
+exclude_rules = LT05

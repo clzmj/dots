@@ -1,0 +1,48 @@
+line-length = 120
+
+[lint]
+select = [
+  "A",     # builtins shadowing
+  "ANN",   # annotations
+  "ARG",   # function args
+  "ASYNC", # async checks
+  "B",     # flake8-bugbear
+  "C4",    # comprehensions
+  "C90",   # complexity
+  "D",     # docstrings
+  "E",     # pycodestyle errors
+  "ERA",   # env assumptions
+  "F",     # pyflakes
+  "I",     # isort
+  "LOG",   # logging practices
+  "N",     # naming
+  "PGH",   # pattern hooks
+  "PTH",   # pathlib over os.path
+  "RET",   # return statements
+  "RUF",   # ruff
+  "S",     # bandit (security)
+  "SIM",   # simplify code
+  "T10",   # debugger usage
+  "TCH",   # type-checking
+  "TRY",   # try/except
+  "UP",    # pyupgrade
+  "W",     # pycodestyle warnings
+  "YTT",   # datetime checks
+]
+
+ignore = [
+  "D100", # missing docstring in public module
+  "D104", # missing docstring in public package
+  "D205", # docstrings blank line spacing
+  "E501", # line too long (handled by formatter)
+  "E731", # do not assign lambda
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]  # allow unused imports
+"src/tests/*" = ["S101", "D103"]  # allow assertions, allow missing docstrings
+
+[format]
+docstring-code-format = true
+indent-style = "space"
+quote-style = "double"

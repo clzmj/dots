@@ -1,0 +1,44 @@
+theme = "vesper"
+
+[editor]
+auto-save = true
+bufferline = "multiple"
+color-modes = true
+line-number = "relative"
+true-color = true
+
+[editor.lsp]
+display-inlay-hints = true
+
+[editor.soft-wrap]
+enable = true
+wrap-indicator = ""
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+[editor.file-picker]
+hidden = false
+
+[editor.statusline]
+center = ["spinner"]
+left = ["mode", "file-name"]
+right = [
+  "diagnostics",
+  "selections",
+  "position",
+  "file-encoding",
+  "file-line-ending",
+  "file-type",
+]
+
+[editor.indent-guides]
+render = true
+
+[keys.normal]
+esc = ["collapse_selection", "keep_primary_selection"]
+
+[keys.normal.space]
+H = ":toggle inline-diagnostics.other-lines hint disable"

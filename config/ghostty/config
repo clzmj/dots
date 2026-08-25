@@ -1,0 +1,21 @@
+bold-is-bright = true
+clipboard-paste-bracketed-safe = true
+cursor-style = block
+font-family = JetBrainsMonoNL Nerd Font Mono
+font-size = 12
+keybind = shift+enter=text:\x1b\r
+keybind = super+v=paste_from_clipboard
+macos-option-as-alt = right
+macos-titlebar-proxy-icon = hidden
+macos-titlebar-style = tabs
+mouse-hide-while-typing = true
+shell-integration-features = no-cursor,sudo,no-title
+theme = Vesper
+unfocused-split-opacity = 0.8
+window-colorspace = display-p3
+window-decoration = true
+window-padding-balance = true
+window-padding-color = background
+window-padding-x = 5
+window-padding-y = 5
+working-directory = {{ .chezmoi.homeDir }}{{ if eq .chezmoi.os "darwin" }}/Desktop{{ end }}

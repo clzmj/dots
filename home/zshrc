@@ -1,0 +1,32 @@
+# Linux boxes lack Ghostty's terminfo — fall back to a universal TERM
+if [[ "$OSTYPE" != darwin* && "$TERM" == "xterm-ghostty" ]]; then
+  export TERM=xterm-256color
+fi
+
+# Completions. -C skips the (slow) dump-staleness check; `rehash-completions`
+# in utils.zsh regenerates it after installing new tools.
+autoload -Uz compinit
+compinit -C -d ~/.zcompdump
+
+eval "$(starship init zsh)"
+eval "$(zoxide init zsh --cmd cd)"
+command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
+command -v wt  >/dev/null 2>&1 && eval "$(command wt config shell init zsh)"
+
+_brew_share="${HOMEBREW_PREFIX:-/opt/homebrew}/share"
+[[ -f "$_brew_share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] \
+  && source "$_brew_share/zsh-autosuggestions/zsh-autosuggestions.zsh"
+[[ -f "$_brew_share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] \
+  && source "$_brew_share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+unset _brew_share
+
+for file in ~/.config/zsh/*.zsh(N); do source "$file"; done
+
+# History
+HISTFILE=~/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS SHARE_HISTORY EXTENDED_HISTORY
+
+# Ctrl-C leaves the cursor visible
+TRAPINT() { printf '\033[?25h'; return $(( 128 + $1 )); }

@@ -1,0 +1,69 @@
+# manager  package  [os]
+#   manager: tap | brew | cask | bun | sh
+#   os:      darwin | linux  (omit = both)
+# Everything here is installed on every machine. Keep it minimal — project
+# tooling belongs in the project, not in your shell.
+
+# ── taps ────────────────────────────────────────────────────────────────
+tap   carrots-sh/tap
+tap   showwin/speedtest
+tap   xo/xo
+
+# ── shell ───────────────────────────────────────────────────────────────
+brew  zsh
+brew  starship
+brew  zoxide
+brew  fzf
+brew  zsh-autosuggestions
+brew  zsh-syntax-highlighting
+
+# ── core CLI ────────────────────────────────────────────────────────────
+brew  bat
+brew  eza
+brew  fd
+brew  ripgrep
+brew  jq
+brew  curl
+brew  git
+brew  git-delta
+brew  gh
+brew  just
+brew  bottom
+brew  carrots-sh/tap/worktrunk
+brew  showwin/speedtest/speedtest
+
+# ── editor + language servers ───────────────────────────────────────────
+brew  helix
+brew  gopls
+brew  taplo
+brew  marksman
+brew  bash-language-server
+brew  typescript-language-server
+brew  yaml-language-server
+brew  vscode-langservers-extracted
+
+# ── languages / runtimes ────────────────────────────────────────────────
+brew  go
+brew  uv
+
+# ── typst ───────────────────────────────────────────────────────────────
+brew  typst
+brew  tinymist
+
+# ── db ──────────────────────────────────────────────────────────────────
+brew  xo/xo/usql
+
+# ── fonts (macOS) ───────────────────────────────────────────────────────
+cask  font-jetbrains-mono-nerd-font  darwin
+
+# ── linux-only: things brew shouldn't own ───────────────────────────────
+sys   zsh      linux
+sys   xclip    linux
+
+# ── self-installing ─────────────────────────────────────────────────────
+sh    bun      curl -fsSL https://bun.com/install | bash
+sh    claude   curl -fsSL https://claude.ai/install.sh | bash
+sh    herdr    curl -fsSL https://herdr.dev/install.sh | sh
+
+# ── bun globals ─────────────────────────────────────────────────────────
+bun   opencode-ai

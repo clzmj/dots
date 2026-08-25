@@ -1,0 +1,42 @@
+format = '''($cmd_duration )$username@$hostname
+$directory($git_branch@$git_commit $git_status)
+▲ '''
+
+[username]
+format = '[$user]($style)'
+style_user = 'white'
+show_always = true
+
+[hostname]
+format = '[$hostname]($style)'
+style = 'white'
+ssh_only = false
+
+[directory]
+style = 'gray'
+truncation_length = 0
+truncate_to_repo = true
+
+[git_branch]
+format = '[$branch]($style)'
+style = 'green'
+
+[git_commit]
+format = '[$hash]($style)'
+style = 'bold yellow'
+commit_hash_length = 8
+disabled = false
+only_detached = false
+
+[git_status]
+format = '([\[$all_status$ahead_behind\]]($style))'
+style = 'red'
+ahead = '↑'
+behind = '↓'
+deleted = '⌫'
+
+[cmd_duration]
+format = '[$duration]($style)'
+min_time = 0
+show_milliseconds = true
+style = 'bold gray'

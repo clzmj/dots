@@ -1,0 +1,10 @@
+*.lock diff=lockfile
+Cargo.lock diff=lockfile
+composer.lock diff=lockfile
+Gemfile.lock diff=lockfile
+package-lock.json diff=lockfile
+Pipfile.lock diff=lockfile
+pnpm-lock.yaml diff=lockfile
+poetry.lock diff=lockfile
+uv.lock diff=lockfile
+yarn.lock diff=lockfile

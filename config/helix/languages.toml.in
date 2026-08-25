@@ -1,0 +1,37 @@
+[[language]]
+name = "sql"
+auto-format = true
+formatter = { command = "sqlfluff", args = [
+  "format",
+  "--nocolor",
+  "--config",
+  "@HOME@/.config/tools/sqlfluff",
+  "-",
+] }
+
+[[language]]
+name = "python"
+auto-format = false
+comment-token = "#"
+file-types = ["py", "pyi", "ipynb"]
+language-servers = ["ruff", "ty"]
+roots = ["pyproject.toml", "poetry.lock", ".git", ".venv/"]
+formatter = { command = "sh", args = [
+  "-c",
+  "uvx ruff check --config @HOME@/.config/tools/ruff.toml --fix --select I - | uvx ruff check --config @HOME@/.config/tools/ruff.toml --fix - | uvx ruff format --config @HOME@/.config/tools/ruff.toml -",
+] }
+
+[language-server.ruff]
+command = "uvx"
+args = ["ruff", "server"]
+environment = { "RUFF_TRACE" = "messages" }
+
+[language-server.ruff.config.settings]
+configuration = "@HOME@/.config/tools/ruff.toml"
+
+[language-server.ty]
+command = "uvx"
+args = ["ty", "server"]
+
+[language-server.ty.environment]
+python = "./.venv"

@@ -1,0 +1,7 @@
+.DS_Store
+.idea/
+.ruff_cache
+.venv/
+.vscode/
+settings.local.json
+venv/
