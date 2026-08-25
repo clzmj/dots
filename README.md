@@ -1,12 +1,12 @@
-# dotfiles
+# dots
 
 One repo, one script, any Mac or Linux box.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/carrots-sh/dotfiles/main/setup.sh | sh
+curl -fsSL https://raw.githubusercontent.com/clzmj/dots/main/setup.sh | sh
 ```
 
-Idempotent. Anything it displaces goes to `~/.dotfiles-backup/<timestamp>/`.
+Idempotent. Anything it displaces goes to `~/.dots-backup/<timestamp>/`.
 
 ## How it works
 

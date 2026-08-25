@@ -43,5 +43,5 @@ notify() {
 rehash-completions() { rm -f ~/.zcompdump; autoload -Uz compinit && compinit -d ~/.zcompdump }
 
 sysupdate() {
-  git -C ~/dotfiles pull --ff-only && ~/dotfiles/setup.sh && brew upgrade && brew cleanup
+  git -C ~/dots pull --ff-only && ~/dots/setup.sh && brew upgrade && brew cleanup
 }
