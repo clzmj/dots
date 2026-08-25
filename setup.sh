@@ -230,6 +230,20 @@ go_release() {   # Debian's golang lags upstream
   sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf "$_t/go.tgz"
 }
 
+# rustup's installer appends PATH lines to shell rc files by default — and
+# ~/.zshrc is a symlink into the repo, so that would dirty git. .zprofile
+# already puts ~/.cargo/bin on PATH, hence --no-modify-path.
+rustup_install() {
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --no-modify-path --profile minimal
+}
+
+cargo_install() {
+  _exists cargo || { warn "cargo missing — skipped: $*"; return 0; }
+  for _c in "$@"; do cargo install "$_c" --locked || warn "  skipped: $_c"; done
+  return 0
+}
+
 go_install() {
   _exists go || { warn "go missing — skipped: $*"; return 0; }
   for _g in "$@"; do go install "$_g@latest" || warn "  skipped: $_g"; done
@@ -258,7 +272,7 @@ bun_install() {
 
 install_packages() {
   # PATH first: bun installs to ~/.bun/bin and the very next line needs it.
-  PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"
+  PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.cargo/bin:$HOME/.opencode/bin:$HOME/go/bin:/usr/local/go/bin:$PATH"
   export PATH
   mkdir -p "$HOME/.local/bin"
 

@@ -66,6 +66,7 @@ debian)
   pkg xclip
   pkg unzip
   pkg xz     xz-utils
+  pkg cc     build-essential   # cargo needs a linker
   pkg /usr/share/ca-certificates ca-certificates
   pkg /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh         zsh-autosuggestions
   pkg /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh zsh-syntax-highlighting
@@ -81,6 +82,7 @@ debian)
   ;;
 
 fedora)
+  pkg cc     gcc               # cargo needs a linker
   pkg zsh
   pkg git
   pkg curl
@@ -107,6 +109,7 @@ fedora)
   ;;
 
 arch)
+  pkg cc     gcc               # cargo needs a linker
   # Arch packages everything, current, and renames nothing except github-cli.
   # helix installs /usr/bin/helix because extra/hex already owns `hx`;
   # aliases.zsh handles either name.
@@ -147,19 +150,22 @@ fi
 have bun      || curl -fsSL https://bun.com/install | bash
 have claude   || curl -fsSL https://claude.ai/install.sh | bash
 have codex    || curl -fsSL https://chatgpt.com/codex/install.sh | sh
+have opencode || curl -fsSL https://opencode.ai/install | bash
 have herdr    || curl -fsSL https://herdr.dev/install.sh | sh
 have uv       || curl -LsSf https://astral.sh/uv/install.sh | sh
-have zoxide   || curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh | sh
-have starship || curl -sS https://starship.rs/install.sh | sh -s -- -y -b "$HOME/.local/bin"
-have just     || curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | bash -s -- --force --to "$HOME/.local/bin"
-# this installer appends /bin to the directory it is given
-have wt       || curl --proto '=https' --tlsv1.2 -LsSf https://github.com/max-sixty/worktrunk/releases/latest/download/worktrunk-installer.sh | WORKTRUNK_INSTALL_DIR="$HOME/.local" sh
+have cargo    || rustup_install
+
+# ── every OS: cargo ─────────────────────────────────────────────────────
+# Built from source into ~/.cargo/bin, which .zprofile has on PATH.
+have zoxide   || cargo_install zoxide
+have starship || cargo_install starship
+have just     || cargo_install just
+have wt       || cargo_install worktrunk
 
 # ── every OS: language managers ─────────────────────────────────────────
 have gopls     || go_install golang.org/x/tools/gopls
 have speedtest || go_install github.com/showwin/speedtest-go
 
-have opencode                   || bun_install opencode-ai
 have pi                         || bun_install @earendil-works/pi-coding-agent
 have bash-language-server       || bun_install bash-language-server
 have typescript-language-server || bun_install typescript-language-server

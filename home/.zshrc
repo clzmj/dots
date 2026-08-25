@@ -45,3 +45,6 @@ TRAPINT() { printf '\033[?25h'; return $(( 128 + $1 )); }
 
 # bun completions
 [ -s "/Users/carlos/.bun/_bun" ] && source "/Users/carlos/.bun/_bun"
+
+# opencode
+export PATH=/Users/carlos/.opencode/bin:$PATH
