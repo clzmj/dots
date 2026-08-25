@@ -35,6 +35,35 @@ The one exception is `config/helix/languages.toml.in`: helix won't expand `~`,
 so `setup.sh` expands `@HOME@` into `~/.config/helix/languages.toml`. That file
 is generated, not linked.
 
+## What it asks
+
+Five questions, each answered by the first of: a `DOTS_*` env var, a cached
+answer, your typed reply, the default.
+
+```
+Full name (git commits) [Carlos Lezama]:
+Email (git commits)     [carlos@example.com]:
+Terminal font           [JetBrainsMonoNL Nerd Font Mono]:
+Terminal font size      [12]:
+Theme (helix + herdr)   [vesper]:
+```
+
+Answers cache to `~/.config/dots/answers`, so re-runs are silent. With no tty
+(or `DOTS_YES=1`) it takes the defaults and never blocks.
+
+If a file already exists, it lists the conflicts and asks **once** whether to
+replace them. Declining keeps your files and links everything else.
+
+## Testing
+
+```sh
+sh test.sh
+```
+
+Runs the whole matrix against throwaway homes — never touches your real
+`$HOME`. Safe inside a container as a non-root user. Validated on macOS,
+Debian 13, Fedora 44 and Arch.
+
 ## Nothing private is in here
 
 No SSH keys, no AWS credentials, no encrypted blobs, no identity. `setup.sh`

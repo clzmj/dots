@@ -141,7 +141,16 @@ install_packages() {
 
   if command -v brew >/dev/null 2>&1; then
     [ -n "$TAPS" ]  && { say "taps"; for t in $TAPS; do brew tap "$t" >/dev/null || warn "tap $t failed"; done; }
-    [ -n "$BREWS" ] && { say "brew formulae"; brew install $BREWS || warn "some formulae failed"; }
+    # One unresolvable name makes brew refuse the WHOLE batch, so a single typo
+    # would install nothing at all. Batch for speed, then fall back per-formula
+    # to isolate the bad ones.
+    if [ -n "$BREWS" ]; then
+      say "brew formulae"
+      if ! brew install $BREWS; then
+        warn "batch install failed — retrying one at a time"
+        for f in $BREWS; do brew install "$f" || warn "  skipped: $f"; done
+      fi
+    fi
     [ -n "$CASKS" ] && [ "$OS" = darwin ] && { say "casks"; brew install --cask $CASKS || warn "some casks failed"; }
   else
     warn "no homebrew — skipped: $BREWS"
@@ -177,11 +186,18 @@ PLAN=$(mktemp); CONFLICTS=$(mktemp); RTMP=$(mktemp)
 trap 'rm -f "$PLAN" "$CONFLICTS" "$RTMP" "${SH_SPECS:-}"' EXIT
 
 emit()   { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$PLAN"; }   # mode src dst
+# Answers are arbitrary user text, and in a sed replacement `\`, `&` and the
+# `|` delimiter are all special: `|` aborts the expression, `&` expands to the
+# whole match, `\` escapes. Escape each value once, then interpolate the copies.
+sedesc() { printf '%s' "$1" | sed 's/[\\&|]/\\&/g'; }
+R_HOME=$(sedesc "$HOME");     R_NAME=$(sedesc "$NAME");   R_EMAIL=$(sedesc "$EMAIL")
+R_FONT=$(sedesc "$FONT"); R_FONT_SIZE=$(sedesc "$FONT_SIZE"); R_THEME=$(sedesc "$THEME")
+
 same_render() { render "$1" > "$RTMP"; cmp -s "$RTMP" "$2"; }
 render() {
-  sed -e "s|@HOME@|$HOME|g" -e "s|@NAME@|$NAME|g" -e "s|@EMAIL@|$EMAIL|g" \
-      -e "s|@FONT@|$FONT|g" -e "s|@FONT_SIZE@|$FONT_SIZE|g" \
-      -e "s|@THEME@|$THEME|g" "$1"
+  sed -e "s|@HOME@|$R_HOME|g" -e "s|@NAME@|$R_NAME|g" -e "s|@EMAIL@|$R_EMAIL|g" \
+      -e "s|@FONT@|$R_FONT|g" -e "s|@FONT_SIZE@|$R_FONT_SIZE|g" \
+      -e "s|@THEME@|$R_THEME|g" "$1"
 }
 for f in $(find "$DOTS/home" -type f | sort); do
   rel=${f#"$DOTS"/home/}
@@ -239,7 +255,8 @@ while IFS="$(printf '\t')" read -r mode src dst; do
   mkdir -p "$(dirname "$dst")"
   case "$mode" in
     link)   ln -sfn "$src" "$dst" ;;
-    render) render "$src" > "$dst" ;;
+    render) render "$src" > "$dst.dots-tmp" && mv -f "$dst.dots-tmp" "$dst" \
+              || { rm -f "$dst.dots-tmp"; die "render failed: $src"; } ;;
     write)  [ -e "$dst" ] || printf '[user]\n\tname = %s\n\temail = %s\n' "$NAME" "$EMAIL" > "$dst" ;;
   esac
 done < "$PLAN"

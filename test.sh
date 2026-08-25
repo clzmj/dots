@@ -50,6 +50,16 @@ if command -v zsh >/dev/null 2>&1; then
                *) pass "T6 no zsh syntax errors" ;; esac
 else echo "  SKIP T6 (no zsh)"; fi
 
+# Answers are user text; `|` `&` `\` are all sed metacharacters in render().
+for v in 'a|b' 'a&b' 'a\b'; do
+  H=$B/tm; rm -rf "$H"; mkdir -p "$H"
+  env -i HOME="$H" PATH="$PATH" DOTS_SKIP_PACKAGES=1 DOTS_YES=1 DOTS_THEME="$v" \
+    sh "$DOTS/setup.sh" >/dev/null 2>&1
+  if [ "$(head -1 "$H/.config/helix/config.toml" 2>/dev/null)" = "theme = \"$v\"" ] \
+     && [ -f "$H/.config/git/local" ]; then pass "T9 metachar answer $v"
+  else fail T9 "THEME=$v corrupted the render or aborted the run"; fi
+done
+
 sh -n "$DOTS/setup.sh" && pass "T7 sh -n" || fail T7 "sh -n"
 if command -v dash >/dev/null 2>&1; then
   H=$B/t8; mkdir -p "$H"

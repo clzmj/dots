@@ -5,9 +5,8 @@
 # tooling belongs in the project, not in your shell.
 
 # ── taps ────────────────────────────────────────────────────────────────
-tap   carrots-sh/tap
 tap   showwin/speedtest
-tap   xo/xo
+tap   xo/xo                            darwin
 
 # ── shell ───────────────────────────────────────────────────────────────
 brew  zsh
@@ -29,7 +28,7 @@ brew  git-delta
 brew  gh
 brew  just
 brew  bottom
-brew  carrots-sh/tap/worktrunk
+brew  worktrunk
 brew  showwin/speedtest/speedtest
 
 # ── editor + language servers ───────────────────────────────────────────
@@ -51,7 +50,7 @@ brew  typst
 brew  tinymist
 
 # ── db ──────────────────────────────────────────────────────────────────
-brew  xo/xo/usql
+brew  xo/xo/usql                     darwin
 
 # ── fonts (macOS) ───────────────────────────────────────────────────────
 cask  font-jetbrains-mono-nerd-font  darwin
@@ -59,6 +58,7 @@ cask  font-jetbrains-mono-nerd-font  darwin
 # ── linux-only: things brew shouldn't own ───────────────────────────────
 sys   zsh      linux
 sys   xclip    linux
+sys   unzip    linux
 
 # ── self-installing ─────────────────────────────────────────────────────
 sh    bun      curl -fsSL https://bun.com/install | bash
