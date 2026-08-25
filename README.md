@@ -126,8 +126,8 @@ committed, because **these files are symlinks into the repo** — editing
 `~/.config/helix/config.toml` *is* editing the repo, so a template would only
 protect you from the thing the design already makes trivial.
 
-Tool configs live where each tool natively looks for them — `~/.config/ruff/`,
-`~/.sqlfluff` — so nothing needs an absolute path baked in, and per-project
+Tool configs live where each tool natively looks for them — `~/.config/ruff/ruff.toml`
+and `~/.config/sqlfluff/.sqlfluff` — so nothing needs an absolute path baked in, and per-project
 configs take precedence the way they should.
 
 The only generated file is `~/.config/git/local`, from two prompts.
