@@ -14,7 +14,8 @@ MIN_DATA_LEN=20
 MAX_DATA_LEN=32
 BORDERS_AND_PADDING=7
 
-report_title="${TR100_TITLE:-UNITED STATES GRAPHICS COMPANY}"
+# Who and where, so an SSH session labels itself. Override with TR100_TITLE.
+report_title="${TR100_TITLE:-$(whoami) @ $(hostname -s 2>/dev/null || uname -n)}"
 last_login_ip_present=0
 
 # ${#var} counts BYTES unless the locale is UTF-8, which would make every
