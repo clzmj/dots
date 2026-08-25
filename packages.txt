@@ -45,9 +45,11 @@ brew  vscode-langservers-extracted
 brew  go
 brew  uv
 
-# ── typst ───────────────────────────────────────────────────────────────
-brew  typst
-brew  tinymist
+# ── cloud / client work (kept deliberately: 81 aws + live terraform in history)
+tap   hashicorp/tap
+brew  awscli
+brew  hashicorp/tap/terraform
+brew  hashicorp/tap/terraform-ls
 
 # ── db ──────────────────────────────────────────────────────────────────
 brew  xo/xo/usql                     darwin
@@ -67,3 +69,5 @@ sh    herdr    curl -fsSL https://herdr.dev/install.sh | sh
 
 # ── bun globals ─────────────────────────────────────────────────────────
 bun   opencode-ai
+bun   @openai/codex
+bun   @earendil-works/pi-coding-agent

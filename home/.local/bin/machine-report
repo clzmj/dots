@@ -1,0 +1,348 @@
+#!/bin/bash
+# TR-100 Machine Report
+# Copyright © 2024, U.S. Graphics, LLC. BSD-3-Clause License.
+#
+# Portable rewrite: runs on macOS and Linux (Debian/Fedora/Arch), and on bash 3.2
+# so macOS's system bash works. All platform-specific probing is isolated in the
+# collect_* functions at the bottom; the renderer above is untouched.
+#
+# Replaces neofetch/macchina.  Override the banner with:  TR100_TITLE="..." machine-report
+
+MIN_NAME_LEN=5
+MAX_NAME_LEN=13
+MIN_DATA_LEN=20
+MAX_DATA_LEN=32
+BORDERS_AND_PADDING=7
+
+report_title="${TR100_TITLE:-UNITED STATES GRAPHICS COMPANY}"
+last_login_ip_present=0
+zfs_present=0
+zfs_filesystem="zroot/ROOT/os"
+
+# ${#var} counts BYTES unless the locale is UTF-8, which would make every
+# box-drawing char measure 3 and truncate the bar graphs. Probe, don't assume.
+utf8_ok() { local probe="█"; [ ${#probe} -eq 1 ]; }
+if ! utf8_ok; then
+    for _loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
+        export LC_ALL="$_loc"
+        utf8_ok && break
+        unset LC_ALL
+    done
+fi
+
+case "$(uname -s)" in
+  Darwin) OS=darwin ;;
+  Linux)  OS=linux ;;
+  *)      OS=other ;;
+esac
+
+# bash 3.2 has no ${var^}
+capitalize() {
+    [ -z "$1" ] && return
+    printf '%s%s' "$(printf '%s' "${1%"${1#?}"}" | tr '[:lower:]' '[:upper:]')" "${1#?}"
+}
+
+max_length() {
+    local max_len=0 len
+    for str in "$@"; do
+        len=${#str}
+        if [ "$len" -gt "$max_len" ]; then max_len=$len; fi
+    done
+    if [ "$max_len" -lt $MAX_DATA_LEN ]; then printf '%s' "$max_len"
+    else printf '%s' "$MAX_DATA_LEN"; fi
+}
+
+set_current_len() {
+    CURRENT_LEN=$(max_length                                     \
+        "$report_title"                                          \
+        "$os_name" "$os_kernel" "$net_hostname" "$net_machine_ip" \
+        "$net_client_ip" "$net_current_user" "$cpu_model"        \
+        "$cpu_cores_per_socket vCPU(s) / $cpu_sockets Socket(s)" \
+        "$cpu_hypervisor" "$cpu_freq GHz"                        \
+        "$cpu_1min_bar_graph" "$cpu_5min_bar_graph" "$cpu_15min_bar_graph" \
+        "$zfs_used_gb/$zfs_available_gb GB [$disk_percent%]"     \
+        "$disk_bar_graph" "$zfs_health"                          \
+        "$root_used_gb/$root_total_gb GB [$disk_percent%]"       \
+        "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"   \
+        "${mem_bar_graph}" "$last_login_time" "$last_login_ip"   \
+        "$sys_uptime")
+}
+
+PRINT_HEADER() {
+    local length=$((CURRENT_LEN+MAX_NAME_LEN+BORDERS_AND_PADDING)) i
+    local top="┌" bottom="├"
+    for (( i = 0; i < length - 2; i++ )); do top+="┬"; bottom+="┴"; done
+    top+="┐"; bottom+="┤"
+    printf '%s\n' "$top"; printf '%s\n' "$bottom"
+}
+
+PRINT_CENTERED_DATA() {
+    local max_len=$((CURRENT_LEN+MAX_NAME_LEN-BORDERS_AND_PADDING))
+    local text="$1" total_width=$((max_len + 12))
+    local text_len=${#text}
+    local padding_left=$(( (total_width - text_len) / 2 ))
+    local padding_right=$(( total_width - text_len - padding_left ))
+    printf "│%${padding_left}s%s%${padding_right}s│\n" "" "$text" ""
+}
+
+PRINT_DIVIDER() {
+    local side="$1" left middle right i
+    case "$side" in
+        top)    left="├"; middle="┬"; right="┤" ;;
+        bottom) left="└"; middle="┴"; right="┘" ;;
+        *)      left="├"; middle="┼"; right="┤" ;;
+    esac
+    local length=$((CURRENT_LEN+MAX_NAME_LEN+BORDERS_AND_PADDING)) divider="$left"
+    for (( i = 0; i < length - 3; i++ )); do
+        divider+="─"
+        if [ "$i" -eq 14 ]; then divider+="$middle"; fi
+    done
+    divider+="$right"
+    printf '%s\n' "$divider"
+}
+
+PRINT_DATA() {
+    local name="$1" data="$2" max_data_len=$CURRENT_LEN
+    local name_len=${#name}
+    if [ "$name_len" -lt $MIN_NAME_LEN ]; then name=$(printf "%-${MIN_NAME_LEN}s" "$name")
+    elif [ "$name_len" -gt $MAX_NAME_LEN ]; then name="$(printf '%s' "$name" | cut -c 1-$((MAX_NAME_LEN-3)))..."
+    else name=$(printf "%-${MAX_NAME_LEN}s" "$name"); fi
+    local data_len=${#data}
+    if [ "$data_len" -ge $((MAX_DATA_LEN-1)) ]; then
+        data="$(printf '%s' "$data" | cut -c 1-$((MAX_DATA_LEN-5)))..."
+    else data=$(printf "%-${max_data_len}s" "$data"); fi
+    printf "│ %-${MAX_NAME_LEN}s │ %s │\n" "$name" "$data"
+}
+
+bar_graph() {
+    local width=$CURRENT_LEN graph="" used=$1 total=$2 percent num_blocks i
+    if [ -z "$total" ] || [ "$total" = 0 ]; then percent=0
+    else percent=$(awk -v u="$used" -v t="$total" 'BEGIN { printf "%.2f", (u / t) * 100 }'); fi
+    num_blocks=$(awk -v p="$percent" -v w="$width" 'BEGIN { printf "%d", (p / 100) * w }')
+    for (( i = 0; i < num_blocks; i++ )); do graph+="█"; done
+    for (( i = num_blocks; i < width; i++ )); do graph+="░"; done
+    printf "%s" "$graph"
+}
+
+get_ip_addr() {
+    local v4="" v6=""
+    if command -v ip >/dev/null 2>&1; then
+        v4=$(ip -o -4 addr show 2>/dev/null | awk '$2 != "lo" && $2 !~ /^(docker|br-|veth)/ {split($4,a,"/"); if (!f++) print a[1]}')
+        [ -z "$v4" ] && v6=$(ip -o -6 addr show 2>/dev/null | awk '$2 != "lo" && $2 !~ /^(docker|br-|veth)/ {split($4,a,"/"); if (!f++) print a[1]}')
+    elif command -v ifconfig >/dev/null 2>&1; then
+        v4=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} i !~ /^(lo|docker|utun|awdl|llw|bridge)/ && /inet / && !f {f=1; print $2}')
+        [ -z "$v4" ] && v6=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} i !~ /^(lo|docker|utun|awdl|llw|bridge)/ && /inet6 / && !f {f=1; print $2}')
+    fi
+    if [ -z "$v4" ] && [ -z "$v6" ]; then printf 'No IP found'; else printf '%s' "${v4:-$v6}"; fi
+}
+
+# ── platform probes ─────────────────────────────────────────────────────
+collect_os() {
+    if [ "$OS" = darwin ]; then
+        local name ver build
+        name=$(sw_vers -productName 2>/dev/null)
+        ver=$(sw_vers -productVersion 2>/dev/null)
+        build=$(sw_vers -buildVersion 2>/dev/null)
+        os_name="$name $ver $build"
+    elif [ -r /etc/os-release ]; then
+        . /etc/os-release
+        os_name="$(capitalize "${ID:-linux}") ${VERSION_ID:-${VERSION:-}} $(capitalize "${VERSION_CODENAME:-}")"
+    else
+        os_name="$(uname -s)"
+    fi
+    # collapse the double spaces a missing codename/version leaves behind
+    os_name=$(printf '%s' "$os_name" | tr -s ' ' | sed 's/ *$//')
+    os_kernel="$(uname) $(uname -r)"
+}
+
+collect_net() {
+    net_current_user=$(whoami)
+    net_hostname=$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)
+    [ -z "$net_hostname" ] && net_hostname="Not Defined"
+    net_machine_ip=$(get_ip_addr)
+    net_client_ip=$(who am i 2>/dev/null | awk '{print $5}' | tr -d '()')
+    [ -z "$net_client_ip" ] && net_client_ip="Not connected"
+    net_dns_ip=()
+    if [ "$OS" = darwin ] && command -v scutil >/dev/null 2>&1; then
+        while IFS= read -r l; do [ -n "$l" ] && net_dns_ip+=("$l"); done < <(
+            scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/{print $3}' | awk '!seen[$0]++' | head -3)
+    fi
+    if [ ${#net_dns_ip[@]} -eq 0 ] && [ -r /etc/resolv.conf ]; then
+        while IFS= read -r l; do [ -n "$l" ] && net_dns_ip+=("$l"); done < <(
+            awk '/^nameserver [0-9a-fA-F.:]/{print $2}' /etc/resolv.conf | head -3)
+    fi
+}
+
+collect_cpu() {
+    if [ "$OS" = darwin ]; then
+        cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
+        cpu_cores=$(sysctl -n hw.ncpu 2>/dev/null)
+        cpu_cores_per_socket=$(sysctl -n hw.physicalcpu 2>/dev/null)
+        cpu_sockets=1
+        local hz; hz=$(sysctl -n hw.cpufrequency 2>/dev/null)
+        # Apple Silicon does not expose a frequency at all — leave it blank and skip the row
+        if [ -n "$hz" ]; then cpu_freq=$(awk -v h="$hz" 'BEGIN{printf "%.2f", h/1000000000}'); else cpu_freq=""; fi
+        if [ "$(sysctl -n kern.hv_vmm_present 2>/dev/null)" = "1" ]; then
+            cpu_hypervisor="Virtualized"; else cpu_hypervisor="Bare Metal"; fi
+    else
+        if command -v lscpu >/dev/null 2>&1; then
+            cpu_model=$(lscpu | awk -F: '/Model name/ && !/BIOS/ {gsub(/^ +/,"",$2); print $2; exit}')
+            cpu_cores_per_socket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +/,"",$2); print $2; exit}')
+            cpu_sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +/,"",$2); print $2; exit}')
+            cpu_hypervisor=$(lscpu | awk -F: '/Hypervisor vendor/ {gsub(/^ +/,"",$2); print $2; exit}')
+        fi
+        # lscpu is not installed everywhere (minimal containers) — /proc always is
+        [ "$cpu_model" = "-" ] && cpu_model=""
+        [ "$cpu_sockets" = "-" ] && cpu_sockets=""
+        [ "$cpu_cores_per_socket" = "-" ] && cpu_cores_per_socket=""
+        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^model name/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
+        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^Model/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
+        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^Hardware/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
+        [ -z "$cpu_model" ] && cpu_model="$(uname -m) ($(nproc 2>/dev/null || echo ?) cores)"
+        cpu_cores=$(nproc --all 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
+        [ -z "$cpu_cores_per_socket" ] && cpu_cores_per_socket=$cpu_cores
+        [ -z "$cpu_sockets" ] && cpu_sockets=1
+        [ -z "$cpu_hypervisor" ] && cpu_hypervisor="Bare Metal"
+        cpu_freq=$(awk -F: '/cpu MHz/ {printf "%.2f", $2/1000; exit}' /proc/cpuinfo 2>/dev/null)
+    fi
+    [ -z "$cpu_cores" ] && cpu_cores=1
+    local la; la=$(uptime | sed 's/.*load averages*: *//')
+    load_avg_1min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $1}')
+    load_avg_5min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $2}')
+    load_avg_15min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $3}')
+}
+
+collect_mem() {
+    if [ "$OS" = darwin ]; then
+        local pagesize stats
+        mem_total=$(( $(sysctl -n hw.memsize) / 1024 ))          # KiB, to match Linux
+        pagesize=$(sysctl -n hw.pagesize)
+        stats=$(vm_stat)
+        local free inactive spec
+        free=$(printf '%s' "$stats"     | awk '/Pages free/          {gsub(/\./,"",$3); print $3}')
+        inactive=$(printf '%s' "$stats" | awk '/Pages inactive/      {gsub(/\./,"",$3); print $3}')
+        spec=$(printf '%s' "$stats"     | awk '/Pages speculative/   {gsub(/\./,"",$3); print $3}')
+        mem_available=$(( ( (free + inactive + spec) * pagesize ) / 1024 ))
+    else
+        mem_total=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+        mem_available=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
+        [ -z "$mem_available" ] && mem_available=$(awk '/MemFree/{print $2}' /proc/meminfo)
+    fi
+    mem_used=$((mem_total - mem_available))
+    mem_percent=$(awk -v u="$mem_used" -v t="$mem_total" 'BEGIN{printf "%.2f", (u/t)*100}')
+    mem_total_gb=$(awk -v v="$mem_total" 'BEGIN{printf "%.2f", v/1048576}')
+    mem_used_gb=$(awk -v v="$mem_used"  'BEGIN{printf "%.2f", v/1048576}')
+}
+
+collect_disk() {
+    if command -v zfs >/dev/null 2>&1 && grep -q zfs /proc/mounts 2>/dev/null; then
+        zfs_present=1
+        zfs_health=$(zpool status -x zroot 2>/dev/null | grep -q "is healthy" && echo "HEALTH O.K.")
+        zfs_available=$(zfs get -o value -Hp available "$zfs_filesystem" 2>/dev/null)
+        zfs_used=$(zfs get -o value -Hp used "$zfs_filesystem" 2>/dev/null)
+        zfs_available_gb=$(awk -v v="$zfs_available" 'BEGIN{printf "%.2f", v/1073741824}')
+        zfs_used_gb=$(awk -v v="$zfs_used" 'BEGIN{printf "%.2f", v/1073741824}')
+        disk_percent=$(awk -v u="$zfs_used" -v a="$zfs_available" 'BEGIN{printf "%.2f", (u/a)*100}')
+    else
+        root_used=$(df -m / | awk 'NR==2 {print $3}')
+        root_total=$(df -m / | awk 'NR==2 {print $2}')
+        root_total_gb=$(awk -v t="$root_total" 'BEGIN{printf "%.2f", t/1024}')
+        root_used_gb=$(awk -v u="$root_used" 'BEGIN{printf "%.2f", u/1024}')
+        disk_percent=$(awk -v u="$root_used" -v t="$root_total" 'BEGIN{printf "%.2f", (u/t)*100}')
+    fi
+}
+
+collect_login() {
+    if [ "$OS" = darwin ]; then
+        local l; l=$(last -1 "$USER" 2>/dev/null | head -1)
+        # local login:  user tty      Www Mmm DD HH:MM
+        # remote login: user tty host Www Mmm DD HH:MM   <- one extra column
+        if printf '%s' "$l" | awk '{exit ($3 ~ /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/) ? 0 : 1}'; then
+            last_login_time=$(printf '%s' "$l" | awk '{print $3, $4, $5, $6}'); last_login_ip=""
+        else
+            last_login_time=$(printf '%s' "$l" | awk '{print $4, $5, $6, $7}')
+            last_login_ip=$(printf '%s' "$l" | awk '{print $3}')
+        fi
+    elif command -v lastlog >/dev/null 2>&1; then
+        local l; l=$(lastlog -u "$USER" 2>/dev/null)
+        last_login_ip=$(printf '%s' "$l" | awk 'NR==2 {print $3}')
+        if printf '%s' "$last_login_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            last_login_time=$(printf '%s' "$l" | awk 'NR==2 {print $6, $7, $10, $8}')
+        else
+            last_login_time=$(printf '%s' "$l" | awk 'NR==2 {print $4, $5, $8, $6}')
+        fi
+    else
+        local l; l=$(last -1 "$USER" 2>/dev/null | head -1)
+        last_login_time=$(printf '%s' "$l" | awk '{print $4, $5, $6, $7}')
+        last_login_ip=$(printf '%s' "$l" | awk '{print $3}')
+    fi
+    [ -z "$last_login_time" ] && last_login_time="Never logged in"
+    [ "$last_login_time" = "in**" ] && last_login_time="Never logged in"
+    if printf '%s' "$last_login_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        last_login_ip_present=1; else last_login_ip=""; fi
+
+    if [ "$OS" = darwin ]; then
+        local boot now up d h m
+        boot=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/^{ *sec = \([0-9][0-9]*\).*/\1/p')
+        now=$(date +%s); up=$(( now - boot ))
+        d=$((up/86400)); h=$(((up%86400)/3600)); m=$(((up%3600)/60))
+        sys_uptime=""
+        [ "$d" -gt 0 ] && sys_uptime="${d}d "
+        [ "$h" -gt 0 ] && sys_uptime="${sys_uptime}${h}h "
+        sys_uptime="${sys_uptime}${m}m"
+    else
+        sys_uptime=$(uptime -p 2>/dev/null | sed 's/up\s*//; s/\s*day\(s*\)/d/; s/\s*hour\(s*\)/h/; s/\s*minute\(s*\)/m/')
+        [ -z "$sys_uptime" ] && sys_uptime=$(uptime | sed 's/.*up *//; s/,.*load.*//')
+    fi
+}
+
+collect_os; collect_net; collect_cpu; collect_mem; collect_disk; collect_login
+set_current_len
+
+cpu_1min_bar_graph=$(bar_graph "$load_avg_1min" "$cpu_cores")
+cpu_5min_bar_graph=$(bar_graph "$load_avg_5min" "$cpu_cores")
+cpu_15min_bar_graph=$(bar_graph "$load_avg_15min" "$cpu_cores")
+mem_bar_graph=$(bar_graph "$mem_used" "$mem_total")
+if [ $zfs_present -eq 1 ]; then disk_bar_graph=$(bar_graph "$zfs_used" "$zfs_available")
+else disk_bar_graph=$(bar_graph "$root_used" "$root_total"); fi
+
+PRINT_HEADER
+PRINT_CENTERED_DATA "$report_title"
+PRINT_CENTERED_DATA "TR-100 MACHINE REPORT"
+PRINT_DIVIDER "top"
+PRINT_DATA "OS" "$os_name"
+PRINT_DATA "KERNEL" "$os_kernel"
+PRINT_DIVIDER
+PRINT_DATA "HOSTNAME" "$net_hostname"
+PRINT_DATA "MACHINE IP" "$net_machine_ip"
+PRINT_DATA "CLIENT  IP" "$net_client_ip"
+dns_num=0
+for dns in ${net_dns_ip[@]+"${net_dns_ip[@]}"}; do
+    dns_num=$((dns_num+1)); PRINT_DATA "DNS  IP $dns_num" "$dns"
+done
+PRINT_DATA "USER" "$net_current_user"
+PRINT_DIVIDER
+PRINT_DATA "PROCESSOR" "$cpu_model"
+PRINT_DATA "CORES" "$cpu_cores_per_socket vCPU(s) / $cpu_sockets Socket(s)"
+PRINT_DATA "HYPERVISOR" "$cpu_hypervisor"
+[ -n "$cpu_freq" ] && PRINT_DATA "CPU FREQ" "$cpu_freq GHz"
+PRINT_DATA "LOAD  1m" "$cpu_1min_bar_graph"
+PRINT_DATA "LOAD  5m" "$cpu_5min_bar_graph"
+PRINT_DATA "LOAD 15m" "$cpu_15min_bar_graph"
+PRINT_DIVIDER
+if [ $zfs_present -eq 1 ]; then
+    PRINT_DATA "VOLUME" "$zfs_used_gb/$zfs_available_gb GB [$disk_percent%]"
+    PRINT_DATA "DISK USAGE" "$disk_bar_graph"
+    PRINT_DATA "ZFS HEALTH" "$zfs_health"
+else
+    PRINT_DATA "VOLUME" "$root_used_gb/$root_total_gb GB [$disk_percent%]"
+    PRINT_DATA "DISK USAGE" "$disk_bar_graph"
+fi
+PRINT_DIVIDER
+PRINT_DATA "MEMORY" "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"
+PRINT_DATA "USAGE" "${mem_bar_graph}"
+PRINT_DIVIDER
+PRINT_DATA "LAST LOGIN" "$last_login_time"
+[ $last_login_ip_present -eq 1 ] && PRINT_DATA "" "$last_login_ip"
+PRINT_DATA "UPTIME" "$sys_uptime"
+PRINT_DIVIDER "bottom"
