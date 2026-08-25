@@ -8,8 +8,9 @@ fi
 autoload -Uz compinit
 compinit -C -d ~/.zcompdump
 
-eval "$(starship init zsh)"
-eval "$(zoxide init zsh --cmd cd)"
+# guarded so a missing tool doesn't shout on every shell start
+command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh --cmd cd)"
 command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
 command -v wt  >/dev/null 2>&1 && eval "$(command wt config shell init zsh)"
 
