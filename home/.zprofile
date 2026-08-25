@@ -5,7 +5,7 @@ elif [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
   eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 fi
 
-export EDITOR=hx
+command -v hx &>/dev/null && export EDITOR=hx || export EDITOR=helix
 export GIT_CONFIG_GLOBAL="$HOME/.config/git/config"
 export VISUAL=$EDITOR
 export LANG=en_US.UTF-8

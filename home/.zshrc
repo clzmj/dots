@@ -11,15 +11,26 @@ compinit -C -d ~/.zcompdump
 # guarded so a missing tool doesn't shout on every shell start
 command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
 command -v zoxide   >/dev/null 2>&1 && eval "$(zoxide init zsh --cmd cd)"
-command -v fzf >/dev/null 2>&1 && source <(fzf --zsh)
+fzf --zsh >/dev/null 2>&1 && source <(fzf --zsh)   # --zsh needs fzf >= 0.48
 command -v wt  >/dev/null 2>&1 && eval "$(command wt config shell init zsh)"
 
-_brew_share="${HOMEBREW_PREFIX:-/opt/homebrew}/share"
-[[ -f "$_brew_share/zsh-autosuggestions/zsh-autosuggestions.zsh" ]] \
-  && source "$_brew_share/zsh-autosuggestions/zsh-autosuggestions.zsh"
-[[ -f "$_brew_share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh" ]] \
-  && source "$_brew_share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-unset _brew_share
+# Each distro puts these somewhere different, and Arch also renames the file to
+# *.plugin.zsh — looking only in the brew prefix left them dead on every Linux box.
+_zsh_plugin() {
+  local name=$1 p
+  for p in \
+    "${HOMEBREW_PREFIX:-/opt/homebrew}/share/$name/$name.zsh" \
+    "/usr/share/$name/$name.zsh" \
+    "/usr/share/zsh/plugins/$name/$name.plugin.zsh" \
+    "/usr/local/share/$name/$name.zsh"
+  do
+    [[ -f $p ]] && { source "$p"; return 0 }
+  done
+  return 1
+}
+_zsh_plugin zsh-autosuggestions
+_zsh_plugin zsh-syntax-highlighting   # must be sourced last
+unfunction _zsh_plugin
 
 for file in ~/.config/zsh/*.zsh(N); do source "$file"; done
 
