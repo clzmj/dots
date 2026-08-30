@@ -1,0 +1,30 @@
+{
+  "name": "dots",
+  "private": true,
+  "engines": {
+    "bun": ">=1.4.0"
+  },
+  "scripts": {
+    "check": "bun run --parallel format:check lint check:shell check:tests",
+    "check:shell": "sh -n setup.sh && dash -n setup.sh && zsh -n home/.zprofile home/.zshrc home/.config/zsh/*.zsh",
+    "check:tests": "bun test --parallel --isolate",
+    "format": "bun run --parallel format:biome format:prettier",
+    "format:biome": "biome format --write src test scripts package.json biome.json",
+    "format:prettier": "prettier --write . --ignore-unknown",
+    "format:check": "bun run --parallel format:check:biome format:check:prettier",
+    "format:check:biome": "biome format src test scripts package.json biome.json",
+    "format:check:prettier": "prettier --check . --ignore-unknown",
+    "lint": "bun run --parallel lint:biome lint:bins",
+    "lint:biome": "biome lint src test scripts package.json biome.json",
+    "lint:bins": "bun scripts/lint-bins.ts",
+    "test": "bun test --parallel --isolate",
+    "test:changed": "bun test --changed --parallel --isolate",
+    "test:docker": "docker compose -f test/docker/compose.yml up --build --abort-on-container-failure --remove-orphans"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.10",
+    "prettier": "^3.9.6",
+    "prettier-plugin-sh": "^0.19.0",
+    "prettier-plugin-toml": "^2.0.6"
+  }
+}

@@ -1,20 +1,31 @@
-#!/usr/bin/env zsh
-# eza --tree, with the usual build/vendor directories pruned.
-set -u
+#!/usr/bin/env bun
+// eza --tree with common build, cache, and vendor directories pruned.
 
-local ignore_patterns=(
-  "__pycache__"
-  ".DS_Store"
-  ".git"
-  ".next"
-  ".ruff_cache"
-  ".svelte-kit"
-  ".terraform"
-  ".venv"
-  "node_modules"
-  "target"
-  "venv"
-)
+export const ignored = [
+  "__pycache__",
+  ".DS_Store",
+  ".git",
+  ".next",
+  ".ruff_cache",
+  ".svelte-kit",
+  ".terraform",
+  ".venv",
+  "node_modules",
+  "target",
+  "venv",
+];
 
-local IFS='|'
-eza --tree --all --git --ignore-glob "${ignore_patterns[*]}" "$@"
+export async function main(args = process.argv.slice(2)) {
+  try {
+    const child = Bun.spawn(
+      ["eza", "--tree", "--all", "--git", "--ignore-glob", ignored.join("|"), ...args],
+      { stdin: "inherit", stdout: "inherit", stderr: "inherit" },
+    );
+    return await child.exited;
+  } catch (error) {
+    console.error(`tree: ${error instanceof Error ? error.message : String(error)}`);
+    return 127;
+  }
+}
+
+if (import.meta.main) process.exit(await main());

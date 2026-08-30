@@ -1,5 +1,37 @@
-#!/bin/sh
-# pbpaste(1) for Linux. Wayland first, then X11.
-[ -x /usr/bin/pbpaste ] && exec /usr/bin/pbpaste
-command -v wl-paste >/dev/null 2>&1 && exec wl-paste
-exec xclip -selection clipboard -o
+#!/usr/bin/env bun
+// pbpaste(1) everywhere: native macOS, Wayland, then X11.
+
+import { accessSync, constants } from "node:fs";
+
+function executable(path) {
+  try {
+    accessSync(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function pasteCommand(platform = process.platform, which = Bun.which, env = process.env) {
+  if (platform === "darwin" && executable("/usr/bin/pbpaste")) return ["/usr/bin/pbpaste"];
+  const wayland = Boolean(env.WAYLAND_DISPLAY) || env.XDG_SESSION_TYPE?.toLowerCase() === "wayland";
+  if (wayland && which("wl-paste")) return ["wl-paste"];
+  if (which("xclip")) return ["xclip", "-selection", "clipboard", "-o"];
+  throw new Error(wayland ? "pbpaste needs wl-paste (Wayland)" : "pbpaste needs xclip (X11)");
+}
+
+export async function main(args = process.argv.slice(2)) {
+  try {
+    const child = Bun.spawn([...pasteCommand(), ...args], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return await child.exited;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 127;
+  }
+}
+
+if (import.meta.main) process.exit(await main());

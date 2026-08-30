@@ -1,0 +1,14 @@
+FROM oven/bun:1.4.0 AS bun
+FROM fedora:44
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+RUN dnf install -y --setopt=install_weak_deps=False \
+      bash ca-certificates curl dash findutils git-core lsof procps-ng unzip xz zsh \
+    && dnf clean all
+
+WORKDIR /workspace
+COPY . .
+
+ENV DOTS_DOCKER_PLATFORM=fedora
+CMD ["bun", "test/docker/run.ts"]

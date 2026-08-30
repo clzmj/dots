@@ -1,328 +1,573 @@
-#!/bin/bash
-# TR-100 Machine Report
-# Copyright © 2024, U.S. Graphics, LLC. BSD-3-Clause License.
-#
-# Portable rewrite: runs on macOS and Linux (Debian/Fedora/Arch), and on bash 3.2
-# so macOS's system bash works. All platform-specific probing is isolated in the
-# collect_* functions at the bottom; the renderer above is untouched.
-#
-# Replaces neofetch/macchina.  Override the banner with:  TR100_TITLE="..." machine-report
+#!/usr/bin/env bun
+// TR-100 Machine Report
+// Copyright © 2024, U.S. Graphics, LLC. BSD-3-Clause License.
 
-MIN_NAME_LEN=5
-MAX_NAME_LEN=13
-MIN_DATA_LEN=20
-MAX_DATA_LEN=32
-BORDERS_AND_PADDING=7
+export type Platform = "darwin" | "linux" | "other";
 
-# Who and where, so an SSH session labels itself. Override with TR100_TITLE.
-report_title="${TR100_TITLE:-$(whoami) @ $(hostname -s 2>/dev/null || uname -n)}"
-last_login_ip_present=0
-
-# ${#var} counts BYTES unless the locale is UTF-8, which would make every
-# box-drawing char measure 3 and truncate the bar graphs. Probe, don't assume.
-utf8_ok() { local probe="█"; [ ${#probe} -eq 1 ]; }
-if ! utf8_ok; then
-    for _loc in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do
-        export LC_ALL="$_loc"
-        utf8_ok && break
-        unset LC_ALL
-    done
-fi
-
-case "$(uname -s)" in
-  Darwin) OS=darwin ;;
-  Linux)  OS=linux ;;
-  *)      OS=other ;;
-esac
-
-# bash 3.2 has no ${var^}
-capitalize() {
-    [ -z "$1" ] && return
-    printf '%s%s' "$(printf '%s' "${1%"${1#?}"}" | tr '[:lower:]' '[:upper:]')" "${1#?}"
+export interface CommandResult {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
-max_length() {
-    local max_len=0 len
-    for str in "$@"; do
-        len=${#str}
-        if [ "$len" -gt "$max_len" ]; then max_len=$len; fi
-    done
-    if [ "$max_len" -lt $MAX_DATA_LEN ]; then printf '%s' "$max_len"
-    else printf '%s' "$MAX_DATA_LEN"; fi
+export interface ProbeContext {
+  platform: Platform;
+  env: Readonly<Record<string, string | undefined>>;
+  run(command: readonly string[]): Promise<CommandResult>;
+  hasCommand(command: string): boolean;
+  readText(path: string): Promise<string | undefined>;
+  now(): number;
 }
 
-set_current_len() {
-    CURRENT_LEN=$(max_length                                     \
-        "$report_title"                                          \
-        "$os_name" "$os_kernel" "$net_hostname" "$net_machine_ip" \
-        "$net_client_ip" "$net_current_user" "$cpu_model"        \
-        "$cpu_cores_per_socket vCPU(s) / $cpu_sockets Socket(s)" \
-        "$cpu_hypervisor" "$cpu_freq GHz"                        \
-        "$cpu_1min_bar_graph" "$cpu_5min_bar_graph" "$cpu_15min_bar_graph" \
-        "$disk_bar_graph" \
-        "$root_used_gb/$root_total_gb GB [$disk_percent%]"       \
-        "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"   \
-        "${mem_bar_graph}" "$last_login_time" "$last_login_ip"   \
-        "$sys_uptime")
+export interface OSReport {
+  name: string;
+  kernel: string;
 }
 
-PRINT_HEADER() {
-    local length=$((CURRENT_LEN+MAX_NAME_LEN+BORDERS_AND_PADDING)) i
-    local top="┌" bottom="├"
-    for (( i = 0; i < length - 2; i++ )); do top+="┬"; bottom+="┴"; done
-    top+="┐"; bottom+="┤"
-    printf '%s\n' "$top"; printf '%s\n' "$bottom"
+export interface NetworkReport {
+  hostname: string;
+  machineIP: string;
+  clientIP: string;
+  dnsIPs: string[];
+  currentUser: string;
 }
 
-PRINT_CENTERED_DATA() {
-    local max_len=$((CURRENT_LEN+MAX_NAME_LEN-BORDERS_AND_PADDING))
-    local text="$1" total_width=$((max_len + 12))
-    local text_len=${#text}
-    local padding_left=$(( (total_width - text_len) / 2 ))
-    local padding_right=$(( total_width - text_len - padding_left ))
-    printf "│%${padding_left}s%s%${padding_right}s│\n" "" "$text" ""
+export interface CPUReport {
+  model: string;
+  cores: number;
+  coresPerSocket: number;
+  sockets: number;
+  hypervisor: string;
+  frequencyGHz?: number;
+  loadAverage: [number, number, number];
 }
 
-PRINT_DIVIDER() {
-    local side="$1" left middle right i
-    case "$side" in
-        top)    left="├"; middle="┬"; right="┤" ;;
-        bottom) left="└"; middle="┴"; right="┘" ;;
-        *)      left="├"; middle="┼"; right="┤" ;;
-    esac
-    local length=$((CURRENT_LEN+MAX_NAME_LEN+BORDERS_AND_PADDING)) divider="$left"
-    for (( i = 0; i < length - 3; i++ )); do
-        divider+="─"
-        if [ "$i" -eq 14 ]; then divider+="$middle"; fi
-    done
-    divider+="$right"
-    printf '%s\n' "$divider"
+export interface MemoryReport {
+  usedKiB: number;
+  totalKiB: number;
 }
 
-PRINT_DATA() {
-    local name="$1" data="$2" max_data_len=$CURRENT_LEN
-    local name_len=${#name}
-    if [ "$name_len" -lt $MIN_NAME_LEN ]; then name=$(printf "%-${MIN_NAME_LEN}s" "$name")
-    elif [ "$name_len" -gt $MAX_NAME_LEN ]; then name="$(printf '%s' "$name" | cut -c 1-$((MAX_NAME_LEN-3)))..."
-    else name=$(printf "%-${MAX_NAME_LEN}s" "$name"); fi
-    local data_len=${#data}
-    if [ "$data_len" -ge $((MAX_DATA_LEN-1)) ]; then
-        data="$(printf '%s' "$data" | cut -c 1-$((MAX_DATA_LEN-5)))..."
-    else data=$(printf "%-${max_data_len}s" "$data"); fi
-    printf "│ %-${MAX_NAME_LEN}s │ %s │\n" "$name" "$data"
+export interface DiskReport {
+  usedMiB: number;
+  totalMiB: number;
 }
 
-bar_graph() {
-    local width=$CURRENT_LEN graph="" used=$1 total=$2 percent num_blocks i
-    if [ -z "$total" ] || [ "$total" = 0 ]; then percent=0
-    else percent=$(awk -v u="$used" -v t="$total" 'BEGIN { printf "%.2f", (u / t) * 100 }'); fi
-    num_blocks=$(awk -v p="$percent" -v w="$width" 'BEGIN { printf "%d", (p / 100) * w }')
-    for (( i = 0; i < num_blocks; i++ )); do graph+="█"; done
-    for (( i = num_blocks; i < width; i++ )); do graph+="░"; done
-    printf "%s" "$graph"
+export interface LoginReport {
+  lastLogin: string;
+  lastLoginIP?: string;
+  uptime: string;
 }
 
-get_ip_addr() {
-    local v4="" v6=""
-    if command -v ip >/dev/null 2>&1; then
-        v4=$(ip -o -4 addr show 2>/dev/null | awk '$2 != "lo" && $2 !~ /^(docker|br-|veth)/ {split($4,a,"/"); if (!f++) print a[1]}')
-        [ -z "$v4" ] && v6=$(ip -o -6 addr show 2>/dev/null | awk '$2 != "lo" && $2 !~ /^(docker|br-|veth)/ {split($4,a,"/"); if (!f++) print a[1]}')
-    elif command -v ifconfig >/dev/null 2>&1; then
-        v4=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} i !~ /^(lo|docker|utun|awdl|llw|bridge)/ && /inet / && !f {f=1; print $2}')
-        [ -z "$v4" ] && v6=$(ifconfig 2>/dev/null | awk '/^[a-z]/{i=$1} i !~ /^(lo|docker|utun|awdl|llw|bridge)/ && /inet6 / && !f {f=1; print $2}')
-    fi
-    if [ -z "$v4" ] && [ -z "$v6" ]; then printf 'No IP found'; else printf '%s' "${v4:-$v6}"; fi
+export interface MachineReport {
+  title: string;
+  os: OSReport;
+  network: NetworkReport;
+  cpu: CPUReport;
+  memory: MemoryReport;
+  disk: DiskReport;
+  login: LoginReport;
 }
 
-# ── platform probes ─────────────────────────────────────────────────────
-collect_os() {
-    if [ "$OS" = darwin ]; then
-        local name ver build
-        name=$(sw_vers -productName 2>/dev/null)
-        ver=$(sw_vers -productVersion 2>/dev/null)
-        build=$(sw_vers -buildVersion 2>/dev/null)
-        os_name="$name $ver $build"
-    elif [ -r /etc/os-release ]; then
-        . /etc/os-release
-        os_name="$(capitalize "${ID:-linux}") ${VERSION_ID:-${VERSION:-}} $(capitalize "${VERSION_CODENAME:-}")"
-    else
-        os_name="$(uname -s)"
-    fi
-    # collapse the double spaces a missing codename/version leaves behind
-    os_name=$(printf '%s' "$os_name" | tr -s ' ' | sed 's/ *$//')
-    os_kernel="$(uname) $(uname -r)"
+const MIN_DATA_WIDTH = 20;
+const MAX_DATA_WIDTH = 32;
+const NAME_WIDTH = 13;
+
+function platformName(value: string): Platform {
+  if (value === "darwin" || value === "linux") return value;
+  return "other";
 }
 
-collect_net() {
-    net_current_user=$(whoami)
-    net_hostname=$(hostname -f 2>/dev/null || hostname 2>/dev/null || uname -n)
-    [ -z "$net_hostname" ] && net_hostname="Not Defined"
-    net_machine_ip=$(get_ip_addr)
-    net_client_ip=$(who am i 2>/dev/null | awk '{print $5}' | tr -d '()')
-    [ -z "$net_client_ip" ] && net_client_ip="Not connected"
-    net_dns_ip=()
-    if [ "$OS" = darwin ] && command -v scutil >/dev/null 2>&1; then
-        while IFS= read -r l; do [ -n "$l" ] && net_dns_ip+=("$l"); done < <(
-            scutil --dns 2>/dev/null | awk '/nameserver\[[0-9]+\]/{print $3}' | awk '!seen[$0]++' | head -3)
-    fi
-    if [ ${#net_dns_ip[@]} -eq 0 ] && [ -r /etc/resolv.conf ]; then
-        while IFS= read -r l; do [ -n "$l" ] && net_dns_ip+=("$l"); done < <(
-            awk '/^nameserver [0-9a-fA-F.:]/{print $2}' /etc/resolv.conf | head -3)
-    fi
+export function createProbeContext(overrides: Partial<ProbeContext> = {}): ProbeContext {
+  const decoder = new TextDecoder();
+  return {
+    platform: platformName(process.platform),
+    env: process.env,
+    run: async (command) => {
+      try {
+        const child = Bun.spawn([...command], {
+          stdin: "ignore",
+          stdout: "pipe",
+          stderr: "pipe",
+        });
+        const [stdout, stderr, exitCode] = await Promise.all([
+          new Response(child.stdout).arrayBuffer(),
+          new Response(child.stderr).arrayBuffer(),
+          child.exited,
+        ]);
+        return {
+          stdout: decoder.decode(stdout).trimEnd(),
+          stderr: decoder.decode(stderr).trimEnd(),
+          exitCode,
+        };
+      } catch (error) {
+        return {
+          stdout: "",
+          stderr: error instanceof Error ? error.message : String(error),
+          exitCode: 127,
+        };
+      }
+    },
+    hasCommand: (command) => Bun.which(command) !== null,
+    readText: async (path) => {
+      const file = Bun.file(path);
+      return (await file.exists()) ? file.text() : undefined;
+    },
+    now: Date.now,
+    ...overrides,
+  };
 }
 
-collect_cpu() {
-    if [ "$OS" = darwin ]; then
-        cpu_model=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)
-        cpu_cores=$(sysctl -n hw.ncpu 2>/dev/null)
-        cpu_cores_per_socket=$(sysctl -n hw.physicalcpu 2>/dev/null)
-        cpu_sockets=1
-        local hz; hz=$(sysctl -n hw.cpufrequency 2>/dev/null)
-        # Apple Silicon does not expose a frequency at all — leave it blank and skip the row
-        if [ -n "$hz" ]; then cpu_freq=$(awk -v h="$hz" 'BEGIN{printf "%.2f", h/1000000000}'); else cpu_freq=""; fi
-        if [ "$(sysctl -n kern.hv_vmm_present 2>/dev/null)" = "1" ]; then
-            cpu_hypervisor="Virtualized"; else cpu_hypervisor="Bare Metal"; fi
-    else
-        if command -v lscpu >/dev/null 2>&1; then
-            cpu_model=$(lscpu | awk -F: '/Model name/ && !/BIOS/ {gsub(/^ +/,"",$2); print $2; exit}')
-            cpu_cores_per_socket=$(lscpu | awk -F: '/Core\(s\) per socket/ {gsub(/^ +/,"",$2); print $2; exit}')
-            cpu_sockets=$(lscpu | awk -F: '/Socket\(s\)/ {gsub(/^ +/,"",$2); print $2; exit}')
-            cpu_hypervisor=$(lscpu | awk -F: '/Hypervisor vendor/ {gsub(/^ +/,"",$2); print $2; exit}')
-        fi
-        # lscpu is not installed everywhere (minimal containers) — /proc always is
-        [ "$cpu_model" = "-" ] && cpu_model=""
-        [ "$cpu_sockets" = "-" ] && cpu_sockets=""
-        [ "$cpu_cores_per_socket" = "-" ] && cpu_cores_per_socket=""
-        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^model name/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
-        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^Model/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
-        [ -z "$cpu_model" ] && cpu_model=$(awk -F: '/^Hardware/ {gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null)
-        [ -z "$cpu_model" ] && cpu_model="$(uname -m) ($(nproc 2>/dev/null || echo ?) cores)"
-        cpu_cores=$(nproc --all 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
-        [ -z "$cpu_cores_per_socket" ] && cpu_cores_per_socket=$cpu_cores
-        [ -z "$cpu_sockets" ] && cpu_sockets=1
-        [ -z "$cpu_hypervisor" ] && cpu_hypervisor="Bare Metal"
-        cpu_freq=$(awk -F: '/cpu MHz/ {printf "%.2f", $2/1000; exit}' /proc/cpuinfo 2>/dev/null)
-    fi
-    [ -z "$cpu_cores" ] && cpu_cores=1
-    local la; la=$(uptime | sed 's/.*load averages*: *//')
-    load_avg_1min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $1}')
-    load_avg_5min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $2}')
-    load_avg_15min=$(printf '%s' "$la" | awk -F'[, ]+' '{print $3}')
+function clean(value: string | undefined, fallback = ""): string {
+  return value?.trim().replace(/\s+/g, " ") || fallback;
 }
 
-collect_mem() {
-    if [ "$OS" = darwin ]; then
-        local pagesize stats
-        mem_total=$(( $(sysctl -n hw.memsize) / 1024 ))          # KiB, to match Linux
-        pagesize=$(sysctl -n hw.pagesize)
-        stats=$(vm_stat)
-        local free inactive spec
-        free=$(printf '%s' "$stats"     | awk '/Pages free/          {gsub(/\./,"",$3); print $3}')
-        inactive=$(printf '%s' "$stats" | awk '/Pages inactive/      {gsub(/\./,"",$3); print $3}')
-        spec=$(printf '%s' "$stats"     | awk '/Pages speculative/   {gsub(/\./,"",$3); print $3}')
-        mem_available=$(( ( (free + inactive + spec) * pagesize ) / 1024 ))
-    else
-        mem_total=$(awk '/MemTotal/{print $2}' /proc/meminfo)
-        mem_available=$(awk '/MemAvailable/{print $2}' /proc/meminfo)
-        [ -z "$mem_available" ] && mem_available=$(awk '/MemFree/{print $2}' /proc/meminfo)
-    fi
-    mem_used=$((mem_total - mem_available))
-    mem_percent=$(awk -v u="$mem_used" -v t="$mem_total" 'BEGIN{printf "%.2f", (u/t)*100}')
-    mem_total_gb=$(awk -v v="$mem_total" 'BEGIN{printf "%.2f", v/1048576}')
-    mem_used_gb=$(awk -v v="$mem_used"  'BEGIN{printf "%.2f", v/1048576}')
+function number(value: string | undefined, fallback = 0): number {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-collect_disk() {
-    root_used=$(df -m / | awk 'NR==2 {print $3}')
-    root_total=$(df -m / | awk 'NR==2 {print $2}')
-    root_total_gb=$(awk -v t="$root_total" 'BEGIN{printf "%.2f", t/1024}')
-    root_used_gb=$(awk -v u="$root_used" 'BEGIN{printf "%.2f", u/1024}')
-    disk_percent=$(awk -v u="$root_used" -v t="$root_total" 'BEGIN{printf "%.2f", (u/t)*100}')
+function capitalize(value: string): string {
+  return value ? value[0]!.toUpperCase() + value.slice(1) : value;
 }
 
-collect_login() {
-    if [ "$OS" = darwin ]; then
-        local l; l=$(last -1 "$USER" 2>/dev/null | head -1)
-        # local login:  user tty      Www Mmm DD HH:MM
-        # remote login: user tty host Www Mmm DD HH:MM   <- one extra column
-        if printf '%s' "$l" | awk '{exit ($3 ~ /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/) ? 0 : 1}'; then
-            last_login_time=$(printf '%s' "$l" | awk '{print $3, $4, $5, $6}'); last_login_ip=""
-        else
-            last_login_time=$(printf '%s' "$l" | awk '{print $4, $5, $6, $7}')
-            last_login_ip=$(printf '%s' "$l" | awk '{print $3}')
-        fi
-    elif command -v lastlog >/dev/null 2>&1; then
-        local l; l=$(lastlog -u "$USER" 2>/dev/null)
-        last_login_ip=$(printf '%s' "$l" | awk 'NR==2 {print $3}')
-        if printf '%s' "$last_login_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-            last_login_time=$(printf '%s' "$l" | awk 'NR==2 {print $6, $7, $10, $8}')
-        else
-            last_login_time=$(printf '%s' "$l" | awk 'NR==2 {print $4, $5, $8, $6}')
-        fi
-    else
-        local l; l=$(last -1 "$USER" 2>/dev/null | head -1)
-        last_login_time=$(printf '%s' "$l" | awk '{print $4, $5, $6, $7}')
-        last_login_ip=$(printf '%s' "$l" | awk '{print $3}')
-    fi
-    [ -z "$last_login_time" ] && last_login_time="Never logged in"
-    [ "$last_login_time" = "in**" ] && last_login_time="Never logged in"
-    if printf '%s' "$last_login_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-        last_login_ip_present=1; else last_login_ip=""; fi
-
-    if [ "$OS" = darwin ]; then
-        local boot now up d h m
-        boot=$(sysctl -n kern.boottime 2>/dev/null | sed -n 's/^{ *sec = \([0-9][0-9]*\).*/\1/p')
-        now=$(date +%s); up=$(( now - boot ))
-        d=$((up/86400)); h=$(((up%86400)/3600)); m=$(((up%3600)/60))
-        sys_uptime=""
-        [ "$d" -gt 0 ] && sys_uptime="${d}d "
-        [ "$h" -gt 0 ] && sys_uptime="${sys_uptime}${h}h "
-        sys_uptime="${sys_uptime}${m}m"
-    else
-        sys_uptime=$(uptime -p 2>/dev/null | sed 's/up\s*//; s/\s*day\(s*\)/d/; s/\s*hour\(s*\)/h/; s/\s*minute\(s*\)/m/')
-        [ -z "$sys_uptime" ] && sys_uptime=$(uptime | sed 's/.*up *//; s/,.*load.*//')
-    fi
+function valueAfterColon(output: string, label: RegExp): string {
+  for (const line of output.split("\n")) {
+    const match = line.match(/^\s*([^:]+):\s*(.*)$/);
+    if (match && label.test(clean(match[1]))) return clean(match[2]);
+  }
+  return "";
 }
 
-collect_os; collect_net; collect_cpu; collect_mem; collect_disk; collect_login
-set_current_len
+function parseOSRelease(contents: string): Record<string, string> {
+  const entries: Record<string, string> = {};
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf("=");
+    if (separator < 1) continue;
+    const key = line.slice(0, separator);
+    let value = line.slice(separator + 1).trim();
+    if (
+      value.length >= 2 &&
+      ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'")))
+    ) {
+      value = value.slice(1, -1);
+    }
+    entries[key] = value.replace(/\\([\\"$`])/g, "$1");
+  }
+  return entries;
+}
 
-cpu_1min_bar_graph=$(bar_graph "$load_avg_1min" "$cpu_cores")
-cpu_5min_bar_graph=$(bar_graph "$load_avg_5min" "$cpu_cores")
-cpu_15min_bar_graph=$(bar_graph "$load_avg_15min" "$cpu_cores")
-mem_bar_graph=$(bar_graph "$mem_used" "$mem_total")
-disk_bar_graph=$(bar_graph "$root_used" "$root_total")
-PRINT_HEADER
-PRINT_CENTERED_DATA "$report_title"
-PRINT_CENTERED_DATA "TR-100 MACHINE REPORT"
-PRINT_DIVIDER "top"
-PRINT_DATA "OS" "$os_name"
-PRINT_DATA "KERNEL" "$os_kernel"
-PRINT_DIVIDER
-PRINT_DATA "HOSTNAME" "$net_hostname"
-PRINT_DATA "MACHINE IP" "$net_machine_ip"
-PRINT_DATA "CLIENT  IP" "$net_client_ip"
-dns_num=0
-for dns in ${net_dns_ip[@]+"${net_dns_ip[@]}"}; do
-    dns_num=$((dns_num+1)); PRINT_DATA "DNS  IP $dns_num" "$dns"
-done
-PRINT_DATA "USER" "$net_current_user"
-PRINT_DIVIDER
-PRINT_DATA "PROCESSOR" "$cpu_model"
-PRINT_DATA "CORES" "$cpu_cores_per_socket vCPU(s) / $cpu_sockets Socket(s)"
-PRINT_DATA "HYPERVISOR" "$cpu_hypervisor"
-[ -n "$cpu_freq" ] && PRINT_DATA "CPU FREQ" "$cpu_freq GHz"
-PRINT_DATA "LOAD  1m" "$cpu_1min_bar_graph"
-PRINT_DATA "LOAD  5m" "$cpu_5min_bar_graph"
-PRINT_DATA "LOAD 15m" "$cpu_15min_bar_graph"
-PRINT_DIVIDER
-PRINT_DATA "VOLUME" "$root_used_gb/$root_total_gb GB [$disk_percent%]"
-PRINT_DATA "DISK USAGE" "$disk_bar_graph"
-PRINT_DIVIDER
-PRINT_DATA "MEMORY" "${mem_used_gb}/${mem_total_gb} GiB [${mem_percent}%]"
-PRINT_DATA "USAGE" "${mem_bar_graph}"
-PRINT_DIVIDER
-PRINT_DATA "LAST LOGIN" "$last_login_time"
-[ $last_login_ip_present -eq 1 ] && PRINT_DATA "" "$last_login_ip"
-PRINT_DATA "UPTIME" "$sys_uptime"
-PRINT_DIVIDER "bottom"
+export async function collectOS(context: ProbeContext): Promise<OSReport> {
+  if (context.platform === "darwin") {
+    const [name, version, build, uname, release] = await Promise.all([
+      context.run(["sw_vers", "-productName"]),
+      context.run(["sw_vers", "-productVersion"]),
+      context.run(["sw_vers", "-buildVersion"]),
+      context.run(["uname"]),
+      context.run(["uname", "-r"]),
+    ]);
+    return {
+      name: clean(`${name.stdout} ${version.stdout} ${build.stdout}`, "macOS"),
+      kernel: clean(`${uname.stdout} ${release.stdout}`, "Darwin"),
+    };
+  }
+
+  const [osRelease, uname, release] = await Promise.all([
+    context.readText("/etc/os-release"),
+    context.run(["uname"]),
+    context.run(["uname", "-r"]),
+  ]);
+  const fields = parseOSRelease(osRelease ?? "");
+  const id = capitalize(fields.ID || context.platform);
+  const version = fields.VERSION_ID || fields.VERSION || "";
+  const codename = capitalize(fields.VERSION_CODENAME || "");
+  return {
+    name: clean(`${id} ${version} ${codename}`, clean(uname.stdout, "Unknown")),
+    kernel: clean(`${uname.stdout} ${release.stdout}`, "Unknown"),
+  };
+}
+
+export function parseIPOutput(output: string): string | undefined {
+  for (const line of output.split("\n")) {
+    const match = line.match(/^\d+:\s+([^\s]+).*?\sinet6?\s+([^\s/]+)/);
+    if (!match) continue;
+    const device = match[1]!.replace(/@.*$/, "");
+    if (/^(lo|docker|br-|veth)/.test(device)) continue;
+    const address = match[2]!;
+    if (address !== "::1" && !address.startsWith("fe80:")) return address;
+  }
+  return undefined;
+}
+
+export function parseIfconfig(output: string): string | undefined {
+  let device = "";
+  for (const line of output.split("\n")) {
+    const header = line.match(/^([^\s:]+):?\s/);
+    if (header) device = header[1]!;
+    if (/^(lo|docker|utun|awdl|llw|bridge|veth)/.test(device)) continue;
+    const v4 = line.match(/\binet\s+(?:addr:)?([^\s]+)/);
+    if (v4 && v4[1] !== "127.0.0.1") return v4[1];
+    const v6 = line.match(/\binet6\s+(?:addr:\s*)?([^\s/%]+)/);
+    if (v6 && v6[1] !== "::1" && !v6[1]!.startsWith("fe80:")) return v6[1];
+  }
+  return undefined;
+}
+
+function parseDNS(contents: string): string[] {
+  const addresses: string[] = [];
+  for (const match of contents.matchAll(
+    /(?:^nameserver\s+|nameserver\[\d+\]\s*:\s*)([0-9a-f.:]+)/gim,
+  )) {
+    if (!addresses.includes(match[1]!)) addresses.push(match[1]!);
+    if (addresses.length === 3) break;
+  }
+  return addresses;
+}
+
+export async function collectNetwork(context: ProbeContext): Promise<NetworkReport> {
+  const hostnameCommand = context.hasCommand("hostname")
+    ? context.run(["hostname", "-f"])
+    : context.run(["uname", "-n"]);
+  const addressCommand = context.hasCommand("ip")
+    ? context.run(["ip", "-o", "addr", "show"])
+    : context.hasCommand("ifconfig")
+      ? context.run(["ifconfig"])
+      : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 });
+  const dnsSource =
+    context.platform === "darwin" && context.hasCommand("scutil")
+      ? context.run(["scutil", "--dns"]).then((result) => result.stdout)
+      : context.readText("/etc/resolv.conf").then((contents) => contents ?? "");
+
+  const [user, hostnameResult, addressResult, who, dns] = await Promise.all([
+    context.run(["whoami"]),
+    hostnameCommand,
+    addressCommand,
+    context.run(["who", "am", "i"]),
+    dnsSource,
+  ]);
+
+  let hostname = clean(hostnameResult.stdout);
+  if (!hostname && context.hasCommand("hostname")) {
+    hostname = clean((await context.run(["hostname"])).stdout);
+  }
+  const address = context.hasCommand("ip")
+    ? parseIPOutput(addressResult.stdout)
+    : parseIfconfig(addressResult.stdout);
+  const client = who.stdout.match(/\(([^)]+)\)\s*$/)?.[1];
+  return {
+    hostname: hostname || "Not Defined",
+    machineIP: address || "No IP found",
+    clientIP: clean(client, "Not connected"),
+    dnsIPs: parseDNS(dns),
+    currentUser: clean(user.stdout, context.env.USER || "Unknown"),
+  };
+}
+
+export function parseLoadAverage(output: string): [number, number, number] {
+  const match = output.match(/load averages?:\s*([0-9.,]+)[, ]+\s*([0-9.,]+)[, ]+\s*([0-9.,]+)/i);
+  return match
+    ? [
+        number(match[1]!.replace(",", ".")),
+        number(match[2]!.replace(",", ".")),
+        number(match[3]!.replace(",", ".")),
+      ]
+    : [0, 0, 0];
+}
+
+export async function collectCPU(context: ProbeContext): Promise<CPUReport> {
+  if (context.platform === "darwin") {
+    const [model, hardwareModel, cores, physical, frequency, virtualized, uptime] =
+      await Promise.all([
+        context.run(["sysctl", "-n", "machdep.cpu.brand_string"]),
+        context.run(["sysctl", "-n", "hw.model"]),
+        context.run(["sysctl", "-n", "hw.ncpu"]),
+        context.run(["sysctl", "-n", "hw.physicalcpu"]),
+        context.run(["sysctl", "-n", "hw.cpufrequency"]),
+        context.run(["sysctl", "-n", "kern.hv_vmm_present"]),
+        context.run(["uptime"]),
+      ]);
+    const frequencyHz = number(frequency.stdout);
+    return {
+      model: clean(model.stdout, clean(hardwareModel.stdout, "Unknown")),
+      cores: Math.max(1, number(cores.stdout, 1)),
+      coresPerSocket: Math.max(1, number(physical.stdout, number(cores.stdout, 1))),
+      sockets: 1,
+      hypervisor: clean(virtualized.stdout) === "1" ? "Virtualized" : "Bare Metal",
+      frequencyGHz: frequencyHz > 0 ? frequencyHz / 1_000_000_000 : undefined,
+      loadAverage: parseLoadAverage(uptime.stdout),
+    };
+  }
+
+  const [lscpu, cpuinfo, nproc, uptime] = await Promise.all([
+    context.hasCommand("lscpu")
+      ? context.run(["lscpu"])
+      : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 }),
+    context.readText("/proc/cpuinfo"),
+    context.hasCommand("nproc")
+      ? context.run(["nproc", "--all"])
+      : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 }),
+    context.run(["uptime"]),
+  ]);
+  const info = cpuinfo ?? "";
+  const detectedCores = Math.max(
+    1,
+    number(nproc.stdout, (info.match(/^processor\s*:/gm) ?? []).length || 1),
+  );
+  const model =
+    valueAfterColon(lscpu.stdout, /^Model name$/i) ||
+    valueAfterColon(info, /^(model name|Model|Hardware)$/i);
+  const coresPerSocket = number(
+    valueAfterColon(lscpu.stdout, /^Core\(s\) per socket$/i),
+    detectedCores,
+  );
+  const sockets = number(valueAfterColon(lscpu.stdout, /^Socket\(s\)$/i), 1);
+  const hypervisor = valueAfterColon(lscpu.stdout, /^Hypervisor vendor$/i);
+  const mhz = number(valueAfterColon(info, /^cpu MHz$/i));
+  return {
+    model: clean(model, `Unknown (${detectedCores} cores)`),
+    cores: detectedCores,
+    coresPerSocket: Math.max(1, coresPerSocket),
+    sockets: Math.max(1, sockets),
+    hypervisor: clean(hypervisor, "Bare Metal"),
+    frequencyGHz: mhz > 0 ? mhz / 1_000 : undefined,
+    loadAverage: parseLoadAverage(uptime.stdout),
+  };
+}
+
+export async function collectMemory(context: ProbeContext): Promise<MemoryReport> {
+  if (context.platform === "darwin") {
+    const [total, pageSize, vmStat] = await Promise.all([
+      context.run(["sysctl", "-n", "hw.memsize"]),
+      context.run(["sysctl", "-n", "hw.pagesize"]),
+      context.run(["vm_stat"]),
+    ]);
+    const totalKiB = number(total.stdout) / 1024;
+    const pages = (label: string) =>
+      number(vmStat.stdout.match(new RegExp(`^Pages ${label}:\\s+(\\d+)\\.`, "m"))?.[1]);
+    const availablePages = pages("free") + pages("inactive") + pages("speculative");
+    const availableKiB = (availablePages * number(pageSize.stdout, 4096)) / 1024;
+    return { totalKiB, usedKiB: Math.max(0, totalKiB - availableKiB) };
+  }
+
+  const meminfo = (await context.readText("/proc/meminfo")) ?? "";
+  const value = (label: string) =>
+    number(meminfo.match(new RegExp(`^${label}:\\s+(\\d+)`, "m"))?.[1]);
+  const totalKiB = value("MemTotal");
+  const availableKiB = value("MemAvailable") || value("MemFree");
+  return { totalKiB, usedKiB: Math.max(0, totalKiB - availableKiB) };
+}
+
+export async function collectDisk(context: ProbeContext): Promise<DiskReport> {
+  const result = await context.run(["df", "-Pm", "/"]);
+  const fields = result.stdout.trim().split("\n").at(-1)?.trim().split(/\s+/) ?? [];
+  return {
+    totalMiB: number(fields[1]),
+    usedMiB: number(fields[2]),
+  };
+}
+
+function formatDuration(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds));
+  const days = Math.floor(whole / 86_400);
+  const hours = Math.floor((whole % 86_400) / 3_600);
+  const minutes = Math.floor((whole % 3_600) / 60);
+  return [days ? `${days}d` : "", hours ? `${hours}h` : "", `${minutes}m`]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function parseMacLogin(line: string): Pick<LoginReport, "lastLogin" | "lastLoginIP"> {
+  const fields = line.trim().split(/\s+/);
+  if (fields.length < 6) return { lastLogin: "Never logged in" };
+  const weekday = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/;
+  const weekdayIndex = fields.findIndex((field, index) => index >= 2 && weekday.test(field));
+  if (weekdayIndex < 0) return { lastLogin: "Never logged in" };
+  const candidateIP = fields[2];
+  return {
+    lastLogin: fields.slice(weekdayIndex, weekdayIndex + 4).join(" "),
+    lastLoginIP: candidateIP && /^\d+(?:\.\d+){3}$/.test(candidateIP) ? candidateIP : undefined,
+  };
+}
+
+function parseLastlog(output: string): Pick<LoginReport, "lastLogin" | "lastLoginIP"> {
+  const line = output.split("\n").find((value, index) => index > 0 && value.trim());
+  if (!line || /Never logged in/i.test(line)) return { lastLogin: "Never logged in" };
+  const ip = line.match(/\b\d+(?:\.\d+){3}\b/)?.[0];
+  const date = line.match(
+    /(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+\w+\s+\d+\s+[\d:]+(?:\s+[+-]\d{4})?\s+\d{4}/,
+  )?.[0];
+  return { lastLogin: clean(date, "Never logged in"), lastLoginIP: ip };
+}
+
+export async function collectLogin(context: ProbeContext): Promise<LoginReport> {
+  const user = context.env.USER || clean((await context.run(["whoami"])).stdout);
+  if (context.platform === "darwin") {
+    const [last, boot] = await Promise.all([
+      context.run(["last", "-1", user]),
+      context.run(["sysctl", "-n", "kern.boottime"]),
+    ]);
+    const login = parseMacLogin(last.stdout.split("\n")[0] ?? "");
+    const bootSeconds = number(boot.stdout.match(/sec\s*=\s*(\d+)/)?.[1]);
+    return {
+      ...login,
+      uptime: bootSeconds ? formatDuration(context.now() / 1000 - bootSeconds) : "Unknown",
+    };
+  }
+
+  const loginPromise = context.hasCommand("lastlog")
+    ? context.run(["lastlog", "-u", user])
+    : context.run(["last", "-1", user]);
+  const [last, uptime] = await Promise.all([loginPromise, context.run(["uptime", "-p"])]);
+  const login = context.hasCommand("lastlog")
+    ? parseLastlog(last.stdout)
+    : parseMacLogin(last.stdout.split("\n")[0] ?? "");
+  return {
+    ...login,
+    uptime: clean(
+      uptime.stdout
+        .replace(/^up\s*/, "")
+        .replace(/\s+days?/g, "d")
+        .replace(/\s+hours?/g, "h")
+        .replace(/\s+minutes?/g, "m"),
+      "Unknown",
+    ),
+  };
+}
+
+export async function collectMachineReport(
+  context: ProbeContext = createProbeContext(),
+): Promise<MachineReport> {
+  const defaultTitle = `${context.env.USER || "Unknown"} @ ${context.env.HOSTNAME || ""}`;
+  const titlePromise = context.env.TR100_TITLE
+    ? Promise.resolve(context.env.TR100_TITLE)
+    : Promise.all([context.run(["whoami"]), context.run(["hostname", "-s"])]).then(([user, host]) =>
+        clean(`${user.stdout} @ ${host.stdout}`, clean(defaultTitle, "Machine")),
+      );
+  const [title, os, network, cpu, memory, disk, login] = await Promise.all([
+    titlePromise,
+    collectOS(context),
+    collectNetwork(context),
+    collectCPU(context),
+    collectMemory(context),
+    collectDisk(context),
+    collectLogin(context),
+  ]);
+  return { title, os, network, cpu, memory, disk, login };
+}
+
+function percent(used: number, total: number): number {
+  return total > 0 ? Math.max(0, Math.min(100, (used / total) * 100)) : 0;
+}
+
+export function barGraph(used: number, total: number, width: number): string {
+  const blocks = Math.max(0, Math.min(width, Math.floor((percent(used, total) / 100) * width)));
+  return "█".repeat(blocks) + "░".repeat(width - blocks);
+}
+
+function firstWrappedLine(value: string, width: number): string {
+  const wrapped = Bun.wrapAnsi(value.replace(/[\r\n]+/g, " "), width, { hard: true });
+  const [first = "", ...rest] = wrapped.split("\n");
+  if (rest.length === 0 && Bun.stringWidth(first) <= width) return first;
+  if (width <= 3) return Bun.sliceAnsi(first, 0, width);
+  return Bun.sliceAnsi(first, 0, width - 3) + "...";
+}
+
+function padCell(value: string, width: number): string {
+  const fitted = firstWrappedLine(value, width);
+  return fitted + " ".repeat(Math.max(0, width - Bun.stringWidth(fitted)));
+}
+
+function dataWidth(report: MachineReport): number {
+  const candidates = [
+    report.title,
+    report.os.name,
+    report.os.kernel,
+    report.network.hostname,
+    report.network.machineIP,
+    report.network.clientIP,
+    report.network.currentUser,
+    report.cpu.model,
+    `${report.cpu.coresPerSocket} vCPU(s) / ${report.cpu.sockets} Socket(s)`,
+    report.cpu.hypervisor,
+    report.login.lastLogin,
+    report.login.lastLoginIP || "",
+    report.login.uptime,
+  ];
+  const widest = Math.max(...candidates.map((value) => Bun.stringWidth(value)));
+  return Math.max(MIN_DATA_WIDTH, Math.min(MAX_DATA_WIDTH, widest));
+}
+
+export function renderMachineReport(report: MachineReport): string {
+  const width = dataWidth(report);
+  const totalWidth = width + NAME_WIDTH + 7;
+  const lines: string[] = [];
+  const row = (name: string, value: string) => {
+    lines.push(`│ ${padCell(name, NAME_WIDTH)} │ ${padCell(value, width)} │`);
+  };
+  const divider = (position: "middle" | "bottom" = "middle") => {
+    const left = position === "bottom" ? "└" : "├";
+    const join = position === "bottom" ? "┴" : "┼";
+    const right = position === "bottom" ? "┘" : "┤";
+    lines.push(`${left}${"─".repeat(NAME_WIDTH + 2)}${join}${"─".repeat(width + 2)}${right}`);
+  };
+  const centered = (value: string) => {
+    const fitted = firstWrappedLine(value, totalWidth - 2);
+    const remaining = totalWidth - 2 - Bun.stringWidth(fitted);
+    const left = Math.floor(remaining / 2);
+    lines.push(`│${" ".repeat(left)}${fitted}${" ".repeat(remaining - left)}│`);
+  };
+  const metric = (value: number) => value.toFixed(2);
+
+  lines.push(`┌${"┬".repeat(totalWidth - 2)}┐`);
+  centered(report.title);
+  centered("TR-100 MACHINE REPORT");
+  lines.push(`├${"┴".repeat(totalWidth - 2)}┤`);
+  row("OS", report.os.name);
+  row("KERNEL", report.os.kernel);
+  divider();
+  row("HOSTNAME", report.network.hostname);
+  row("MACHINE IP", report.network.machineIP);
+  row("CLIENT  IP", report.network.clientIP);
+  report.network.dnsIPs.forEach((dns, index) => row(`DNS  IP ${index + 1}`, dns));
+  row("USER", report.network.currentUser);
+  divider();
+  row("PROCESSOR", report.cpu.model);
+  row("CORES", `${report.cpu.coresPerSocket} vCPU(s) / ${report.cpu.sockets} Socket(s)`);
+  row("HYPERVISOR", report.cpu.hypervisor);
+  if (report.cpu.frequencyGHz) row("CPU FREQ", `${metric(report.cpu.frequencyGHz)} GHz`);
+  row("LOAD  1m", barGraph(report.cpu.loadAverage[0], report.cpu.cores, width));
+  row("LOAD  5m", barGraph(report.cpu.loadAverage[1], report.cpu.cores, width));
+  row("LOAD 15m", barGraph(report.cpu.loadAverage[2], report.cpu.cores, width));
+  divider();
+  row(
+    "VOLUME",
+    report.disk.totalMiB > 0
+      ? `${metric(report.disk.usedMiB / 1024)}/${metric(report.disk.totalMiB / 1024)} GB [${metric(percent(report.disk.usedMiB, report.disk.totalMiB))}%]`
+      : "Unknown",
+  );
+  row("DISK USAGE", barGraph(report.disk.usedMiB, report.disk.totalMiB, width));
+  divider();
+  row(
+    "MEMORY",
+    report.memory.totalKiB > 0
+      ? `${metric(report.memory.usedKiB / 1_048_576)}/${metric(report.memory.totalKiB / 1_048_576)} GiB [${metric(percent(report.memory.usedKiB, report.memory.totalKiB))}%]`
+      : "Unknown",
+  );
+  row("USAGE", barGraph(report.memory.usedKiB, report.memory.totalKiB, width));
+  divider();
+  row("LAST LOGIN", report.login.lastLogin);
+  if (report.login.lastLoginIP) row("", report.login.lastLoginIP);
+  row("UPTIME", report.login.uptime);
+  divider("bottom");
+  return lines.join("\n") + "\n";
+}
+
+export async function main(): Promise<void> {
+  process.stdout.write(renderMachineReport(await collectMachineReport()));
+}
+
+if (import.meta.main) {
+  await main();
+}

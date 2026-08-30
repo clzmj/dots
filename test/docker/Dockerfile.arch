@@ -1,0 +1,14 @@
+FROM oven/bun:1.4.0 AS bun
+FROM archlinux:base
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+RUN pacman --disable-sandbox -Syu --needed --noconfirm \
+      bash ca-certificates curl dash findutils git lsof procps-ng unzip xz zsh \
+    && pacman -Scc --noconfirm
+
+WORKDIR /workspace
+COPY . .
+
+ENV DOTS_DOCKER_PLATFORM=arch
+CMD ["bun", "test/docker/run.ts"]

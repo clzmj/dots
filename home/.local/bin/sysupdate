@@ -1,5 +1,0 @@
-#!/usr/bin/env zsh
-# Pull the dots repo, re-run setup.sh, then update packages.
-set -u
-
-git -C ~/dots pull --ff-only && ~/dots/setup.sh && brew upgrade && brew cleanup

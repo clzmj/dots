@@ -20,7 +20,6 @@ command = "uvx"
 args = ["ruff", "server"]
 environment = { "RUFF_TRACE" = "messages" }
 
-
 [language-server.ty]
 command = "uvx"
 args = ["ty", "server"]

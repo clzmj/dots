@@ -1,0 +1,15 @@
+FROM oven/bun:1.4.0-debian
+
+USER root
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update -qq \
+    && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl dash git lsof procps unzip xz-utils zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+COPY . .
+
+ENV DOTS_DOCKER_PLATFORM=debian
+CMD ["bun", "test/docker/run.ts"]

@@ -1,24 +1,86 @@
-#!/usr/bin/env zsh
-# Open the current repo (or a given path) on its forge, in a browser.
-set -u
+#!/usr/bin/env bun
+// Open the current repository (or a path within it) on its forge.
 
-local remote url branch repo_root rel_path host
+import { relative, resolve } from "node:path";
+import { realpathSync } from "node:fs";
 
-remote=$(git remote get-url origin 2>/dev/null || git remote -v | awk '/\(fetch\)/{print $2; exit}')
-url=$(echo "$remote" | sed -E 's|^git@([^:]+):(.*)\.git$|https://\1/\2|' | sed 's|\.git$||')
+async function git(args, cwd = process.cwd(), optional = false) {
+  const child = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: optional ? "ignore" : "inherit",
+  });
+  const output = await new Response(child.stdout).text();
+  const status = await child.exited;
+  if (status !== 0) {
+    if (optional) return "";
+    throw new Error(`git ${args.join(" ")} failed`);
+  }
+  return output.trim();
+}
 
-branch=$(git branch --show-current)
-repo_root=$(git rev-parse --show-toplevel)
-rel_path=$(realpath --relative-to="$repo_root" "${1:-$PWD}" 2>/dev/null || echo "")
+export function normalizeRemote(remote) {
+  const value = remote.trim();
+  const scp = value.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
+  if (scp && !value.includes("://")) return `https://${scp[1]}/${scp[2].replace(/\.git$/, "")}`;
+  if (/^ssh:\/\//.test(value)) {
+    const url = new URL(value);
+    return `https://${url.host}${url.pathname}`.replace(/\.git$/, "").replace(/\/$/, "");
+  }
+  return value
+    .replace(/^git:\/\//, "https://")
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
+}
 
-host=$(echo "$url" | awk -F/ '{print $3}')
+function encodePath(path) {
+  return path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+}
 
-if [[ -n "$branch" ]]; then
-  if [[ "$host" == *gitlab* ]]; then
-    url="$url/-/tree/$branch/$rel_path"
-  else
-    url="$url/tree/$branch/$rel_path"
-  fi
-fi
+export function forgePath(base, branch, relPath = "") {
+  if (!branch) return base;
+  const host = new URL(base).hostname.toLowerCase();
+  const marker = host.includes("gitlab") ? "/-/tree/" : "/tree/";
+  const suffix = [encodePath(branch), encodePath(relPath)].filter(Boolean).join("/");
+  return `${base}${marker}${suffix}`;
+}
 
-open "$url"
+export async function main(args = process.argv.slice(2)) {
+  try {
+    let remote = await git(["remote", "get-url", "origin"], process.cwd(), true);
+    if (!remote) {
+      const remotes = await git(["remote", "-v"]);
+      remote =
+        remotes
+          .split("\n")
+          .find((line) => /\(fetch\)\s*$/.test(line))
+          ?.split(/\s+/)[1] || "";
+    }
+    if (!remote) throw new Error("repository has no origin remote");
+
+    const root = await git(["rev-parse", "--show-toplevel"]);
+    const branch = await git(["branch", "--show-current"], root, true);
+    let target = root;
+    try {
+      target = realpathSync(resolve(args[0] || process.cwd()));
+    } catch {
+      // Missing paths should still open the repository rather than inventing a URL.
+    }
+    const relPath = relative(root, target);
+    if (relPath.startsWith("..") || relPath === "..")
+      throw new Error("path is outside the repository");
+
+    const url = forgePath(normalizeRemote(remote), branch, relPath);
+    const child = Bun.spawn(["open", url], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    return await child.exited;
+  } catch (error) {
+    console.error(`www: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
+if (import.meta.main) process.exit(await main());

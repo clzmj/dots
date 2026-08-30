@@ -1,0 +1,4 @@
+.git
+.dots-backup
+node_modules
+test/docker/.state

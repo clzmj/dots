@@ -25,14 +25,7 @@ hidden = false
 [editor.statusline]
 center = ["spinner"]
 left = ["mode", "file-name"]
-right = [
-  "diagnostics",
-  "selections",
-  "position",
-  "file-encoding",
-  "file-line-ending",
-  "file-type",
-]
+right = ["diagnostics", "selections", "position", "file-encoding", "file-line-ending", "file-type"]
 
 [editor.indent-guides]
 render = true

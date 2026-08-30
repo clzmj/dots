@@ -29,8 +29,11 @@ else
   alias c='claude'
 fi
 # Arch's helix package installs /usr/bin/helix (extra/hex already owns `hx`)
-if command -v hx >/dev/null 2>&1; then alias vi='hx'
-elif command -v helix >/dev/null 2>&1; then alias vi='helix'; alias hx='helix'
+if command -v hx > /dev/null 2>&1; then
+  alias vi='hx'
+elif command -v helix > /dev/null 2>&1; then
+  alias vi='helix'
+  alias hx='helix'
 fi
 
 # ── python ──────────────────────────────────────────────────────────────

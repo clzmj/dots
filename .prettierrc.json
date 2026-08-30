@@ -1,0 +1,14 @@
+{
+  "plugins": ["prettier-plugin-sh", "prettier-plugin-toml"],
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "overrides": [
+    {
+      "files": ["home/.local/bin/*"],
+      "options": {
+        "parser": "typescript"
+      }
+    }
+  ]
+}

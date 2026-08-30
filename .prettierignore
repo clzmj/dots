@@ -1,0 +1,9 @@
+biome.json
+package.json
+src/**/*.ts
+test/**/*.ts
+scripts/**/*.ts
+node_modules
+home/.zprofile
+home/.zshrc
+home/.config/zsh/*.zsh

@@ -1,0 +1,18 @@
+name: dots-bun-tests
+
+services:
+  debian:
+    build:
+      context: ../..
+      dockerfile: test/docker/Dockerfile.debian
+  fedora:
+    build:
+      context: ../..
+      dockerfile: test/docker/Dockerfile.fedora
+  arch:
+    # The official Arch image is amd64-only; Docker Desktop uses emulation on
+    # Apple Silicon so the distro remains part of the same isolated matrix.
+    platform: linux/amd64
+    build:
+      context: ../..
+      dockerfile: test/docker/Dockerfile.arch

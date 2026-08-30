@@ -1,48 +1,138 @@
-#!/usr/bin/env zsh
-# fzf menu over `git blame` for one line: copy the hash, the blame, a
-# permalink, or open the commit.
-set -u
+#!/usr/bin/env bun
+// fzf menu for copying or opening the blame information for one line.
 
-local file="$1"
-local line="$2"
+import { realpathSync } from "node:fs";
+import { relative } from "node:path";
 
-local root rel sha blame remote base host branch
-root=$(git rev-parse --show-toplevel) || return
-rel=$(realpath --relative-to="$root" "$file")
+async function git(args, cwd = process.cwd(), optional = false) {
+  const child = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: optional ? "ignore" : "inherit",
+  });
+  const output = await new Response(child.stdout).text();
+  const status = await child.exited;
+  if (status !== 0) {
+    if (optional) return "";
+    throw new Error(`git ${args.join(" ")} failed`);
+  }
+  return output.trim();
+}
 
-blame=$(git blame -L "$line,$line" -- "$rel")
-sha=$(awk '{print $1}' <<<"$blame")
+export function normalizeRemote(remote) {
+  const value = remote.trim();
+  const scp = value.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
+  if (scp && !value.includes("://")) return `https://${scp[1]}/${scp[2].replace(/\.git$/, "")}`;
+  if (/^ssh:\/\//.test(value)) {
+    const url = new URL(value);
+    return `https://${url.host}${url.pathname}`.replace(/\.git$/, "").replace(/\/$/, "");
+  }
+  return value
+    .replace(/^git:\/\//, "https://")
+    .replace(/\.git$/, "")
+    .replace(/\/$/, "");
+}
 
-remote=$(git remote get-url origin 2>/dev/null || git remote -v | awk '/\(fetch\)/{print $2; exit}')
-base=$(echo "$remote" | sed -E 's|^git@([^:]+):(.*)\.git$|https://\1/\2|' | sed 's|\.git$||')
-host=$(awk -F/ '{print $3}' <<<"$base")
+export function blameUrls(base, sha, branch, rel, line) {
+  const host = new URL(base).hostname.toLowerCase();
+  const encodedRel = rel.split("/").map(encodeURIComponent).join("/");
+  const encodedBranch = branch.split("/").map(encodeURIComponent).join("/");
+  if (host.includes("gitlab")) {
+    return {
+      commit: `${base}/-/commit/${sha}`,
+      lineCommit: `${base}/-/blob/${sha}/${encodedRel}#L${line}`,
+      lineBranch: `${base}/-/blob/${encodedBranch}/${encodedRel}#L${line}`,
+    };
+  }
+  return {
+    commit: `${base}/commit/${sha}`,
+    lineCommit: `${base}/blob/${sha}/${encodedRel}#L${line}`,
+    lineBranch: `${base}/blob/${encodedBranch}/${encodedRel}#L${line}`,
+  };
+}
 
-branch=$(git branch --show-current)
+async function choose(line) {
+  const choices = [
+    "copy hash",
+    "copy blame",
+    "copy url (commit+line)",
+    "open commit",
+    "open url (branch+line)",
+  ];
+  const child = Bun.spawn(["fzf", `--prompt=blame:${line} > `, "--height=40%", "--border"], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "inherit",
+  });
+  child.stdin.write(`${choices.join("\n")}\n`);
+  child.stdin.end();
+  const output = (await new Response(child.stdout).text()).trim();
+  return (await child.exited) === 0 ? output : "";
+}
 
-if [[ "$host" == *gitlab* ]]; then
-  url_commit="$base/-/commit/$sha"
-  url_line_commit="$base/-/blob/$sha/$rel#L$line"
-  url_line_branch="$base/-/blob/$branch/$rel#L$line"
-else
-  url_commit="$base/commit/$sha"
-  url_line_commit="$base/blob/$sha/$rel#L$line"
-  url_line_branch="$base/blob/$branch/$rel#L$line"
-fi
+async function copy(text) {
+  const child = Bun.spawn(["pbcopy"], { stdin: "pipe", stdout: "inherit", stderr: "inherit" });
+  child.stdin.write(text);
+  child.stdin.end();
+  return await child.exited;
+}
 
-choice=$(
-  printf "%s\n" \
-    "copy hash" \
-    "copy blame" \
-    "copy url (commit+line)" \
-    "open commit" \
-    "open url (branch+line)" \
-  | fzf --prompt="blame:$line > " --height=40% --border
-) || return
+export async function main(args = process.argv.slice(2)) {
+  const [file, lineText] = args;
+  const line = Number(lineText);
+  if (!file || !Number.isSafeInteger(line) || line < 1) {
+    console.error("usage: blame-menu FILE LINE");
+    return 2;
+  }
 
-case "$choice" in
-  "copy hash") printf "%s" "$sha" | pbcopy ;;
-  "copy blame") printf "%s" "$blame" | pbcopy ;;
-  "copy url (commit+line)") printf "%s" "$url_line_commit" | pbcopy ;;
-  "open commit") open "$url_commit" ;;
-  "open url (branch+line)") open "$url_line_branch" ;;
-esac
+  try {
+    const root = await git(["rev-parse", "--show-toplevel"]);
+    const rel = relative(root, realpathSync(file));
+    if (!rel || rel.startsWith("..") || rel === "..")
+      throw new Error("file must be inside the repository");
+    const blame = await git(["blame", "-L", `${line},${line}`, "--", rel], root);
+    const sha = blame.split(/\s+/, 1)[0].replace(/^\^/, "");
+    if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new Error("could not parse blame commit");
+
+    let remote = await git(["remote", "get-url", "origin"], root, true);
+    if (!remote) {
+      const remotes = await git(["remote", "-v"], root);
+      remote =
+        remotes
+          .split("\n")
+          .find((entry) => /\(fetch\)\s*$/.test(entry))
+          ?.split(/\s+/)[1] || "";
+    }
+    if (!remote) throw new Error("repository has no origin remote");
+    const branch = (await git(["branch", "--show-current"], root, true)) || sha;
+    const urls = blameUrls(normalizeRemote(remote), sha, branch, rel, line);
+
+    switch (await choose(line)) {
+      case "copy hash":
+        return await copy(sha);
+      case "copy blame":
+        return await copy(blame);
+      case "copy url (commit+line)":
+        return await copy(urls.lineCommit);
+      case "open commit":
+        return await Bun.spawn(["open", urls.commit], {
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+        }).exited;
+      case "open url (branch+line)":
+        return await Bun.spawn(["open", urls.lineBranch], {
+          stdin: "inherit",
+          stdout: "inherit",
+          stderr: "inherit",
+        }).exited;
+      default:
+        return 0;
+    }
+  } catch (error) {
+    console.error(`blame-menu: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
+}
+
+if (import.meta.main) process.exit(await main());
