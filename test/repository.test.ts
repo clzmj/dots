@@ -1,20 +1,11 @@
 import { expect, test } from "bun:test";
-import { readFile, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
-const bin = join(root, "home/.local/bin");
 
-test("every installed helper is an executable Bun command", async () => {
-  const commands: string[] = [];
-  for await (const name of new Bun.Glob("*").scan({ cwd: bin, onlyFiles: true })) {
-    commands.push(name);
-    const path = join(bin, name);
-    const [contents, metadata] = await Promise.all([readFile(path, "utf8"), stat(path)]);
-    expect(contents.split("\n", 1)[0]).toBe("#!/usr/bin/env bun");
-    expect(metadata.mode & 0o111).not.toBe(0);
-  }
-  expect(commands.sort()).toEqual([
+test("legacy CLI helpers are no longer vendored", () => {
+  const commands = [
     "blame-menu",
     "kserver",
     "machine-report",
@@ -24,7 +15,10 @@ test("every installed helper is an executable Bun command", async () => {
     "pbpaste",
     "tree",
     "www",
-  ]);
+  ];
+  for (const command of commands) {
+    expect(existsSync(join(root, "home/.local/bin", command))).toBe(false);
+  }
 });
 
 test("the repository has no machine-specific absolute home path", async () => {

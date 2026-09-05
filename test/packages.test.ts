@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Command, CommandResult, CommandRunner } from "../src/lib/process";
 import {
   detectArchitecture,
   detectPlatform,
   installPackages,
   nativePackagesFor,
-  platformFromEnvironment,
   type Platform,
+  platformFromEnvironment,
 } from "../src/packages";
-import type { Command, CommandResult, CommandRunner } from "../src/lib/process";
 
 describe("package inventory", () => {
   test("detects supported platforms without probing the host", () => {
@@ -86,6 +86,22 @@ describe("package inventory", () => {
       }
     });
   }
+
+  test("converges Lemonaid packages by package name instead of existing binaries", async () => {
+    const report = await installPackages({
+      platform: "darwin",
+      home: "/tmp/dots-package-plan",
+      dryRun: true,
+      exists: () => true,
+      log: () => {},
+      warn: () => {},
+    });
+    const bunInstall = report.planned.find((line) => line.startsWith("bun globals:"));
+    expect(bunInstall).toContain("bun install -g");
+    expect(bunInstall).toContain("@lemonaid-dev/clipboard");
+    expect(bunInstall).toContain("@lemonaid-dev/forge");
+    expect(bunInstall).toContain("@lemonaid-dev/open");
+  });
 
   test("failed apt update blocks apt install and every dependent stage", async () => {
     const home = await mkdtemp(join(tmpdir(), "dots-packages-failure-"));

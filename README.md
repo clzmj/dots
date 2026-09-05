@@ -20,9 +20,11 @@ collected during setup.
 
 ```text
 home/                   files linked into $HOME
-home/.local/bin/        Bun-powered command-line helpers
 src/setup.ts            configuration, backup, linking, and stale-link cleanup
-src/packages.ts         typed per-platform package inventory and installers
+src/packages.ts         stable public entry point for package setup
+src/packages/install.ts shared package orchestration and installer mechanics
+src/packages/platforms/ isolated inventories and install plans for each OS
+src/packages/types.ts   shared package setup contracts
 src/lib/process.ts      subprocess, timeout, and concurrency primitives
 setup.sh                prerequisite/Bun/checkout bootstrap only
 ```
@@ -94,11 +96,25 @@ Bun itself is installed before this inventory is evaluated, so the setup,
 helpers, downloads, archive extraction, tests, and subprocess orchestration all
 share one runtime from the beginning.
 
-## Helpers
+## Command-line tools
 
-`home/.local/bin/` contains extensionless Bun executables: `www`,
-`blame-menu`, `kserver`, `notify`, `open`, `pbcopy`, `pbpaste`, `tree`,
-and `machine-report`.
+The Bun package inventory installs Lemonaid's command-line tools from public
+npm packages. Their source lives in isolated, private GitLab projects under
+`lemonaid-dev/tools/cli`; this repository only declares the packages needed by
+a machine.
+
+| Package                        | Commands                     |
+| ------------------------------ | ---------------------------- |
+| `@lemonaid-dev/forge`          | `forge`, `www`, `blame-menu` |
+| `@lemonaid-dev/clipboard`      | `pbcopy`, `pbpaste`          |
+| `@lemonaid-dev/open`           | `open`                       |
+| `@lemonaid-dev/kserver`        | `kserver`                    |
+| `@lemonaid-dev/notify`         | `notify`                     |
+| `@lemonaid-dev/machine-report` | `machine-report`             |
+| `@lemonaid-dev/eza-tree`       | `tree`                       |
+
+Each package can also be installed independently with
+`bun install -g @lemonaid-dev/<package>`.
 
 `nd` and `rehash-completions` remain Zsh functions because they must mutate the
 calling shell; a child process cannot change its parent's directory or rebuild
