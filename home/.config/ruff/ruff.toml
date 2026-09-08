@@ -2,32 +2,32 @@ line-length = 120
 
 [lint]
 select = [
-  "A",     # builtins shadowing
-  "ANN",   # annotations
-  "ARG",   # function args
+  "A", # builtins shadowing
+  "ANN", # annotations
+  "ARG", # function args
   "ASYNC", # async checks
-  "B",     # flake8-bugbear
-  "C4",    # comprehensions
-  "C90",   # complexity
-  "D",     # docstrings
-  "E",     # pycodestyle errors
-  "ERA",   # env assumptions
-  "F",     # pyflakes
-  "I",     # isort
-  "LOG",   # logging practices
-  "N",     # naming
-  "PGH",   # pattern hooks
-  "PTH",   # pathlib over os.path
-  "RET",   # return statements
-  "RUF",   # ruff
-  "S",     # bandit (security)
-  "SIM",   # simplify code
-  "T10",   # debugger usage
-  "TCH",   # type-checking
-  "TRY",   # try/except
-  "UP",    # pyupgrade
-  "W",     # pycodestyle warnings
-  "YTT",   # datetime checks
+  "B", # flake8-bugbear
+  "C4", # comprehensions
+  "C90", # complexity
+  "D", # docstrings
+  "E", # pycodestyle errors
+  "ERA", # env assumptions
+  "F", # pyflakes
+  "I", # isort
+  "LOG", # logging practices
+  "N", # naming
+  "PGH", # pattern hooks
+  "PTH", # pathlib over os.path
+  "RET", # return statements
+  "RUF", # ruff
+  "S", # bandit (security)
+  "SIM", # simplify code
+  "T10", # debugger usage
+  "TCH", # type-checking
+  "TRY", # try/except
+  "UP", # pyupgrade
+  "W", # pycodestyle warnings
+  "YTT", # datetime checks
 ]
 
 ignore = [
@@ -39,7 +39,7 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"__init__.py" = ["F401"]         # allow unused imports
+"__init__.py" = ["F401"] # allow unused imports
 "src/tests/*" = ["S101", "D103"] # allow assertions, allow missing docstrings
 
 [format]

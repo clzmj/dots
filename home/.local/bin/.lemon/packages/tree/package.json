@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-tree",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An opinionated eza tree view",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/cli.ts",
+    "./command": "./src/cli.ts"
+  }
+}

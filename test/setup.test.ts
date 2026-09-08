@@ -192,6 +192,34 @@ describe("setup", () => {
       await rm(item.root, { recursive: true, force: true });
     }
   });
+
+  test("links Lemon into local bin as a runnable Bun command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "dots-lemon-setup-test-"));
+    const dots = resolve(import.meta.dir, "..");
+    const home = join(root, "home");
+    try {
+      await mkdir(home);
+      await setup({
+        dots,
+        home,
+        platform: "darwin",
+        skipPackages: true,
+        env: { DOTS_YES: "1" },
+        prompt: new FixedPrompt(true),
+        ...quiet,
+      });
+      const lemon = join(home, ".local/bin/lemon");
+      expect(await readlink(lemon)).toBe(join(dots, "home/.local/bin/lemon"));
+      const result = Bun.spawnSync([lemon, "--version"], {
+        env: { ...process.env, HOME: home },
+        stdout: "pipe",
+      });
+      expect(result.exitCode).toBe(0);
+      expect(new TextDecoder().decode(result.stdout).trim()).toBe("0.1.0");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 test("POSIX bootstrap accepts Bun 1.4 and execs with --no-orphans", async () => {

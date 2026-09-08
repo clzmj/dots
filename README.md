@@ -20,6 +20,7 @@ collected during setup.
 
 ```text
 home/                   files linked into $HOME
+home/.local/bin/lemon    Bun CLI installed by the normal dotfile linking pass
 src/setup.ts            configuration, backup, linking, and stale-link cleanup
 src/packages.ts         stable public entry point for package setup
 src/packages/install.ts shared package orchestration and installer mechanics
@@ -68,8 +69,8 @@ The local suite runs Bun tests in parallel and isolated processes, plus syntax
 validation for the POSIX bootstrap:
 
 ```sh
-bun run format # apply Biome + Prettier formatting
-bun run lint   # lint typed files and extensionless Bun commands
+bun run format # apply Oxfmt formatting
+bun run lint   # run Oxlint on typed files and extensionless Bun commands
 bun run check
 ```
 
@@ -90,7 +91,8 @@ The inventory keeps platform-specific naming and release behavior explicit:
 - Arch uses `github-cli`; Helix is tested by its `hx` executable.
 - A downloaded Helix release includes its required `runtime/` directory.
 - Bun global tools are installed with Bun and node-style launcher shebangs are
-  wrapped when Node is absent.
+  wrapped when Node is absent. Lemon is part of the mirrored dotfiles tree and
+  is linked directly into `~/.local/bin`.
 
 Bun itself is installed before this inventory is evaluated, so the setup,
 helpers, downloads, archive extraction, tests, and subprocess orchestration all
@@ -98,23 +100,14 @@ share one runtime from the beginning.
 
 ## Command-line tools
 
-The Bun package inventory installs Lemonaid's command-line tools from public
-npm packages. Their source lives in isolated, private GitLab projects under
-`lemonaid-dev/tools/cli`; this repository only declares the packages needed by
-a machine.
+Lemon lives at [`home/.local/bin/lemon`](home/.local/bin/lemon), with private
+modules beside it under `home/.local/bin/.lemon`. The normal setup linking pass
+installs it at `~/.local/bin/lemon`; setup does not fetch or globally install
+any `@lemonaid-dev/*` packages.
 
-| Package                        | Commands                     |
-| ------------------------------ | ---------------------------- |
-| `@lemonaid-dev/forge`          | `forge`, `www`, `blame-menu` |
-| `@lemonaid-dev/clipboard`      | `pbcopy`, `pbpaste`          |
-| `@lemonaid-dev/open`           | `open`                       |
-| `@lemonaid-dev/kserver`        | `kserver`                    |
-| `@lemonaid-dev/notify`         | `notify`                     |
-| `@lemonaid-dev/machine-report` | `machine-report`             |
-| `@lemonaid-dev/eza-tree`       | `tree`                       |
-
-Each package can also be installed independently with
-`bun install -g @lemonaid-dev/<package>`.
+```sh
+lemon --help
+```
 
 `nd` and `rehash-completions` remain Zsh functions because they must mutate the
 calling shell; a child process cannot change its parent's directory or rebuild

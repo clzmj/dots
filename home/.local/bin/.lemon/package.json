@@ -1,0 +1,15 @@
+{
+  "name": "lemon",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Small, sharp tools for everyday development",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "bun ../lemon",
+    "test": "bun test"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-info",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable machine status reports",
+  "license": "BSD-3-Clause",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./command": "./src/cli.ts"
+  }
+}

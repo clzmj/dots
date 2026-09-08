@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-ports",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Find and safely stop local development servers",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/ports.ts",
+    "./command": "./src/cli.ts"
+  }
+}

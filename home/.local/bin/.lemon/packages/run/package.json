@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-run",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run commands and notify when they finish",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/runner.ts",
+    "./command": "./src/cli.ts"
+  }
+}

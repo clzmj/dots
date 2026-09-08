@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-open",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open files and URLs with the platform application",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./command": "./src/cli.ts"
+  }
+}

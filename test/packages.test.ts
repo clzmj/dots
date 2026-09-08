@@ -87,7 +87,7 @@ describe("package inventory", () => {
     });
   }
 
-  test("converges Lemonaid packages by package name instead of existing binaries", async () => {
+  test("does not install deprecated Lemonaid globals", async () => {
     const report = await installPackages({
       platform: "darwin",
       home: "/tmp/dots-package-plan",
@@ -96,11 +96,7 @@ describe("package inventory", () => {
       log: () => {},
       warn: () => {},
     });
-    const bunInstall = report.planned.find((line) => line.startsWith("bun globals:"));
-    expect(bunInstall).toContain("bun install -g");
-    expect(bunInstall).toContain("@lemonaid-dev/clipboard");
-    expect(bunInstall).toContain("@lemonaid-dev/forge");
-    expect(bunInstall).toContain("@lemonaid-dev/open");
+    expect(report.planned.some((line) => line.includes("@lemonaid-dev/"))).toBe(false);
   });
 
   test("failed apt update blocks apt install and every dependent stage", async () => {

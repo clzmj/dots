@@ -21,6 +21,12 @@ test("legacy CLI helpers are no longer vendored", () => {
   }
 });
 
+test("Lemon is installed through the mirrored local bin", async () => {
+  const lemon = join(root, "home/.local/bin/lemon");
+  expect(existsSync(lemon)).toBe(true);
+  expect((await Bun.file(lemon).text()).startsWith("#!/usr/bin/env bun\n")).toBe(true);
+});
+
 test("the repository has no machine-specific absolute home path", async () => {
   const offenders: string[] = [];
   const machineHome = ["", "Users", "carlos"].join("/");

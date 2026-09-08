@@ -584,21 +584,7 @@ async function installLanguageTools(context: PackageContext, skipped: string[]) 
     ["yaml-language-server", "yaml-language-server"],
     ["vscode-json-language-server", "vscode-langservers-extracted"],
   ].filter(([tool]) => missing(context, tool, skipped)) as Array<[string, string]>;
-  // These packages are converged by package name rather than binary presence.
-  // Several expose multiple binaries, and `open` already exists natively on macOS.
-  const lemonaidPackages = [
-    "@lemonaid-dev/clipboard",
-    "@lemonaid-dev/forge",
-    "@lemonaid-dev/kserver",
-    "@lemonaid-dev/machine-report",
-    "@lemonaid-dev/notify",
-    "@lemonaid-dev/open",
-    "@lemonaid-dev/eza-tree",
-  ];
-  const bunPackages = [
-    ...missingBunPackages.map(([, packageName]) => packageName),
-    ...lemonaidPackages,
-  ];
+  const bunPackages = missingBunPackages.map(([, packageName]) => packageName);
   if (bunPackages.length > 0) {
     groups.push({
       name: "bun globals",

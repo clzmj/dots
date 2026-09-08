@@ -1,0 +1,12 @@
+{
+  "name": "@dots/lemon-repo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Git repository and blame links",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./command": "./src/cli.ts"
+  }
+}

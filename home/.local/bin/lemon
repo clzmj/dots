@@ -1,0 +1,86 @@
+#!/usr/bin/env bun
+
+import { runClip } from "./.lemon/packages/clip/src/cli";
+import { runInfo } from "./.lemon/packages/info/src/cli";
+import { runOpen } from "./.lemon/packages/open/src/cli";
+import { runPorts } from "./.lemon/packages/ports/src/cli";
+import { runRepo } from "./.lemon/packages/repo/src/cli";
+import { runCommand } from "./.lemon/packages/run/src/cli";
+import { runTree } from "./.lemon/packages/tree/src/cli";
+
+import pkg from "./.lemon/package.json";
+
+export interface CliIO {
+  readonly out: (message: string) => void;
+  readonly error: (message: string) => void;
+}
+
+export const commands = {
+  repo: { summary: "Open, print, or copy Git repository links", run: runRepo },
+  open: { summary: "Open files and URLs with the platform application", run: runOpen },
+  clip: { summary: "Copy to or paste from the system clipboard", run: runClip },
+  ports: { summary: "List and stop local development servers", run: runPorts },
+  run: { summary: "Run a command and notify when it finishes", run: runCommand },
+  info: { summary: "Show a portable machine report", run: runInfo },
+  tree: { summary: "Show an opinionated eza directory tree", run: runTree },
+} as const;
+
+export type CommandName = keyof typeof commands;
+
+export function help(): string {
+  const width = Math.max(...Object.keys(commands).map((name) => name.length));
+  const lines = Object.entries(commands)
+    .map(([name, command]) => `  ${name.padEnd(width)}  ${command.summary}`)
+    .join("\n");
+  return `lemon
+
+${pkg.description}
+
+Usage:
+  lemon <command> [options]
+  lemon help <command>
+
+Commands:
+${lines}
+
+Options:
+  --help, -h       Show help
+  --version, -v    Show version`;
+}
+
+export async function main(
+  args: readonly string[] = Bun.argv.slice(2),
+  io: CliIO = { out: console.log, error: console.error },
+): Promise<number> {
+  const [first, ...rest] = args;
+  if (!first || first === "--help" || first === "-h") {
+    io.out(help());
+    return 0;
+  }
+  if (first === "--version" || first === "-v") {
+    io.out(pkg.version);
+    return 0;
+  }
+  if (first === "help") {
+    const name = rest[0];
+    if (!name) {
+      io.out(help());
+      return 0;
+    }
+    const command = commands[name as CommandName];
+    if (!command) {
+      io.error(`lemon: unknown command: ${name}`);
+      return 2;
+    }
+    return command.run(["--help"]);
+  }
+  const command = commands[first as CommandName];
+  if (!command) {
+    io.error(`lemon: unknown command: ${first}`);
+    io.error("Run 'lemon --help' for usage.");
+    return 2;
+  }
+  return command.run(rest);
+}
+
+if (import.meta.main) process.exit(await main());
