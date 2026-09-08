@@ -258,7 +258,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       }
     }
 
-    if (!skipPackages) await ensureLoginShell(options.platform, runner, env, dryRun, log);
+    await ensureLoginShell(options.platform, runner, env, dryRun, log);
     if (!dryRun && existsSync(backup)) log(`replaced files are in ${backup}`);
     if (!dryRun && packageFailures > 0) {
       throw new Error(

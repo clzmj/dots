@@ -59,7 +59,7 @@ the default. Answers are stored in `~/.config/dots/answers`.
 With no TTY—or with `DOTS_YES=1`—setup never blocks. Useful controls are:
 
 ```sh
-DOTS_SKIP_PACKAGES=1 ./setup.sh # link config; Bun is still foundational
+DOTS_SKIP_PACKAGES=1 ./setup.sh # link config; Bun and zsh remain foundational
 DOTS_DRY_RUN=1 ./setup.sh       # print the package/link plan without changing it
 DOTS_BUN_VERSION=bun-v1.4.0 ./setup.sh
 ```

@@ -46,7 +46,7 @@ as_root() {
 # are deliberately a single serialized bootstrap operation.
 install_prerequisites() {
   _need=0
-  for _command in git curl unzip bash; do
+  for _command in git curl unzip bash zsh; do
     command -v "$_command" > /dev/null 2>&1 || _need=1
   done
   case $BOOTSTRAP_PLATFORM in
@@ -56,7 +56,7 @@ install_prerequisites() {
         die "finish installing Apple's Command Line Tools, then run setup again"
       fi
       [ "$_need" = 0 ] && return 0
-      for _command in git curl unzip bash; do
+      for _command in git curl unzip bash zsh; do
         command -v "$_command" > /dev/null 2>&1 || die "missing bootstrap prerequisite: $_command"
       done
       ;;
@@ -65,20 +65,20 @@ install_prerequisites() {
       [ "$_need" = 0 ] && return 0
       say "installing bootstrap prerequisites"
       as_root apt-get update -qq
-      as_root apt-get install -y git curl unzip ca-certificates bash
+      as_root apt-get install -y git curl unzip ca-certificates bash zsh
       ;;
     fedora)
       [ -r /etc/pki/tls/certs/ca-bundle.crt ] \
         || [ -r /etc/ssl/certs/ca-certificates.crt ] || _need=1
       [ "$_need" = 0 ] && return 0
       say "installing bootstrap prerequisites"
-      as_root dnf install -y --allowerasing git curl unzip ca-certificates bash
+      as_root dnf install -y --allowerasing git curl unzip ca-certificates bash zsh
       ;;
     arch)
       [ -r /etc/ssl/certs/ca-certificates.crt ] || _need=1
       [ "$_need" = 0 ] && return 0
       say "installing bootstrap prerequisites"
-      as_root pacman -S --needed --noconfirm git curl unzip ca-certificates bash
+      as_root pacman -S --needed --noconfirm git curl unzip ca-certificates bash zsh
       ;;
   esac
 }

@@ -12,6 +12,7 @@ import {
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import type { CommandRunner } from "../src/lib/process";
 import { findStaleLinks, setup, type Prompt } from "../src/setup";
 
 class FixedPrompt implements Prompt {
@@ -39,7 +40,20 @@ async function fixture() {
   await writeFile(join(dots, "home/.zshrc"), "source config\n");
   await writeFile(join(dots, "home/.config/zsh/shell.zsh"), "alias hi=hello\n");
   await mkdir(home, { recursive: true });
-  return { root, dots, home };
+  return { root, dots, home, runner: loginShellRunner(home) };
+}
+
+function loginShellRunner(home: string): CommandRunner {
+  const shell = Bun.which("zsh") ?? "/bin/zsh";
+  return {
+    async run(command) {
+      const stdout =
+        command[0] === "id"
+          ? `user:*:501:20::0:0:User:${home}:${shell}\n`
+          : `user:x:1000:1000::${home}:${shell}\n`;
+      return { command, exitCode: 0, stdout, stderr: "", durationMs: 0 };
+    },
+  };
 }
 
 const quiet = { log: () => {}, warn: () => {} };
@@ -233,6 +247,7 @@ describe("setup", () => {
         platform: "darwin",
         skipPackages: true,
         env: { DOTS_YES: "1" },
+        runner: loginShellRunner(home),
         prompt: new FixedPrompt(true),
         ...quiet,
       });
