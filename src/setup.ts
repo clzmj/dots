@@ -183,7 +183,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     if (!dryRun) await writeAnswers(answersFile, { NAME: name, EMAIL: email });
 
     if (skipPackages)
-      warn("DOTS_SKIP_PACKAGES=1 — skipping optional packages (Bun remains required)");
+      warn("DOTS_SKIP_PACKAGES=1 — skipping optional packages (Bun and zsh remain required)");
     else {
       const packageReport = await (options.packageInstaller ?? installPackages)({
         platform: options.platform,
