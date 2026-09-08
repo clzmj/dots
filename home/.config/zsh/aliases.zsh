@@ -6,6 +6,7 @@ alias cat='bat'
 alias ls='eza --git'
 alias l='ls -lah'
 alias la='ls -lAh'
+alias tree='eza --tree --all --git --ignore-glob "__pycache__|.DS_Store|.git|.next|.ruff_cache|.svelte-kit|.terraform|.venv|node_modules|target|venv"'
 alias -- -='cd -'
 alias -g ...='../..'
 

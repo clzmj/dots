@@ -14,7 +14,3 @@ export HOMEBREW_NO_ENV_HINTS=1
 export NODE_NO_WARNINGS=1
 export _ZO_DOCTOR=0
 [[ "$OSTYPE" == darwin* ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-
-# Everything that can receive a binary. Keep in sync with install_packages().
-path=(~/.local/bin ~/.bun/bin ~/.cargo/bin ~/.opencode/bin ~/go/bin /usr/local/go/bin $path)
-export PATH

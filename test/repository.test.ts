@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, symlink } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const root = join(import.meta.dir, "..");
@@ -25,6 +27,34 @@ test("Lemon is installed through the mirrored local bin", async () => {
   const lemon = join(root, "home/.local/bin/lemon");
   expect(existsSync(lemon)).toBe(true);
   expect((await Bun.file(lemon).text()).startsWith("#!/usr/bin/env bun\n")).toBe(true);
+});
+
+test("zsh exposes homologous user tool paths to non-interactive commands", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "dots-zshenv-test-"));
+  const home = join(parent, "home");
+  try {
+    await mkdir(home);
+    await symlink(join(root, "home/.zshenv"), join(home, ".zshenv"));
+    const child = Bun.spawn(["zsh", "-c", "print -rl -- $path"], {
+      env: { HOME: home, ZDOTDIR: home, PATH: "/usr/bin:/bin" },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, status] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(status, stderr).toBe(0);
+    const paths = stdout.trim().split("\n");
+    for (const relative of [".local/bin", ".bun/bin", ".cargo/bin", ".opencode/bin", "go/bin"])
+      expect(paths).toContain(join(home, relative));
+    expect(paths).toContain("/usr/local/go/bin");
+    expect(paths).toContain("/usr/local/bin");
+    if (process.platform === "darwin") expect(paths).toContain("/opt/homebrew/bin");
+  } finally {
+    await rm(parent, { recursive: true, force: true });
+  }
 });
 
 test("the repository has no machine-specific absolute home path", async () => {

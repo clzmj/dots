@@ -17,13 +17,10 @@ the bootstrap; it has no package-registry or GitLab dependency.
 ## Commands
 
 ```text
-lemon repo     Open, print, or copy Git repository links
-lemon open     Open files and URLs with the platform application
-lemon clip     Copy to or paste from the system clipboard
-lemon ports    List and stop local development servers
-lemon run      Run a command and notify when it finishes
 lemon info     Show a portable machine report
-lemon tree     Show an opinionated eza directory tree
+lemon repo     Open, print, or copy Git repository links
+lemon ports    List and stop local development servers
+lemon notify   Run a command and notify when it finishes
 ```
 
 Run `lemon help <command>` for command-specific help.
@@ -40,8 +37,8 @@ bun run check
 - Bun is required at runtime.
 - `git` is required by `lemon repo`.
 - `fzf` is required only for the interactive `lemon repo blame` menu.
-- `eza` is required by `lemon tree`.
-- Linux clipboard support requires `wl-clipboard` or `xclip`.
+- Repository open/copy actions use native platform openers and clipboards;
+  Linux requires `wl-clipboard` or `xclip` for copying.
 - `lsof` is required by `lemon ports`.
 
 ## License

@@ -258,7 +258,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       }
     }
 
-    if (!skipPackages) await ensureLoginShell(options.platform, runner, env, dryRun, log, warn);
+    if (!skipPackages) await ensureLoginShell(options.platform, runner, env, dryRun, log);
     if (!dryRun && existsSync(backup)) log(`replaced files are in ${backup}`);
     if (!dryRun && packageFailures > 0) {
       throw new Error(
@@ -403,12 +403,11 @@ async function ensureLoginShell(
   env: Record<string, string | undefined>,
   dryRun: boolean,
   log: (message: string) => void,
-  warn: (message: string) => void,
 ): Promise<void> {
   const zsh = whichInPath("zsh", env.PATH);
-  if (!zsh) return;
+  if (!zsh) throw new Error("zsh is required but was not installed");
   const user = env.USER || env.LOGNAME || process.env.USER;
-  if (!user) return;
+  if (!user) throw new Error("cannot set the zsh login shell without USER or LOGNAME");
   const current = await loginShell(platform, runner, user, env);
   if (current === zsh) return;
   if (dryRun) {
@@ -429,7 +428,7 @@ async function ensureLoginShell(
   if (result.exitCode !== 0) result = await runner.run(["chsh", "-s", zsh], { env });
   const verified = await loginShell(platform, runner, user, env);
   if (verified === zsh) log(`login shell set to ${zsh}`);
-  else warn(`could not set the login shell — run: chsh -s ${zsh}`);
+  else throw new Error(`could not set login shell to ${zsh}; run: sudo chsh -s ${zsh} ${user}`);
 }
 
 async function loginShell(
@@ -438,15 +437,10 @@ async function loginShell(
   user: string,
   env: Record<string, string | undefined>,
 ): Promise<string> {
-  const command: Command =
-    platform === "darwin"
-      ? ["dscl", ".", "-read", `/Users/${user}`, "UserShell"]
-      : ["getent", "passwd", user];
+  const command: Command = platform === "darwin" ? ["id", "-P", user] : ["getent", "passwd", user];
   const result = await runner.run(command, { env });
   if (result.exitCode !== 0) return "";
-  return platform === "darwin"
-    ? (result.stdout.trim().split(/\s+/).at(-1) ?? "")
-    : (result.stdout.trim().split(":")[6] ?? "");
+  return result.stdout.trim().split(":").at(-1) ?? "";
 }
 
 function privileged(command: Command): Command {

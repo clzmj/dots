@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseCli, parseDuration, runCommand } from "../src/cli";
+import { parseCli, parseDuration, runNotify } from "../src/cli";
 import {
   formatDuration,
   osc777,
@@ -141,13 +141,13 @@ describe("CLI", () => {
     const runtime = new FakeRuntime();
     runtime.status = 17;
     expect(
-      await runCommand(["fails"], { runtime, notifier: async () => true, error: () => {} }),
+      await runNotify(["fails"], { runtime, notifier: async () => true, error: () => {} }),
     ).toBe(17);
 
     const compatibilityRuntime = new FakeRuntime();
     compatibilityRuntime.status = 17;
     expect(
-      await runCommand(["--always-zero", "fails"], {
+      await runNotify(["--always-zero", "fails"], {
         runtime: compatibilityRuntime,
         notifier: async () => true,
       }),
@@ -156,7 +156,7 @@ describe("CLI", () => {
 
   test("returns usage status for invalid invocation", async () => {
     const errors: string[] = [];
-    expect(await runCommand([], { error: (line) => errors.push(line) })).toBe(2);
+    expect(await runNotify([], { error: (line) => errors.push(line) })).toBe(2);
     expect(errors.join("\n")).toContain("command is required");
   });
 });

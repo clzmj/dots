@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "check": "bun run --parallel format:check lint check:shell check:tests",
-    "check:shell": "sh -n setup.sh && dash -n setup.sh && zsh -n home/.zprofile home/.zshrc home/.config/zsh/*.zsh",
+    "check:shell": "sh -n setup.sh && dash -n setup.sh && zsh -n home/.zshenv home/.zprofile home/.zshrc home/.config/zsh/*.zsh",
     "check:tests": "bun scripts/test.ts --parallel --isolate",
     "format": "bun run --parallel format:oxfmt format:bins",
     "format:oxfmt": "oxfmt --write .",

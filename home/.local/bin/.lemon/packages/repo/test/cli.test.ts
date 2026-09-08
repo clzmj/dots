@@ -20,7 +20,7 @@ async function run(args: readonly string[]) {
 
 describe("repo command contracts", () => {
   test("shows top-level and subcommand help", async () => {
-    for (const args of [[], ["--help"], ["open", "--help"], ["blame", "--help"]]) {
+    for (const args of [["--help"], ["blame", "--help"]]) {
       const result = await run(args);
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Usage:");
@@ -36,9 +36,9 @@ describe("repo command contracts", () => {
     });
   });
 
-  test("rejects invalid commands", async () => {
+  test("treats the first positional argument as a repository path", async () => {
     const result = await run(["unknown"]);
     expect(result.status).toBe(2);
-    expect(result.stderr).toContain("lemon repo: unknown command");
+    expect(result.stderr).toContain("lemon repo: path does not exist");
   });
 });

@@ -1,12 +1,9 @@
 #!/usr/bin/env bun
 
-import { runClip } from "./.lemon/packages/clip/src/cli";
 import { runInfo } from "./.lemon/packages/info/src/cli";
-import { runOpen } from "./.lemon/packages/open/src/cli";
 import { runPorts } from "./.lemon/packages/ports/src/cli";
 import { runRepo } from "./.lemon/packages/repo/src/cli";
-import { runCommand } from "./.lemon/packages/run/src/cli";
-import { runTree } from "./.lemon/packages/tree/src/cli";
+import { runNotify } from "./.lemon/packages/run/src/cli";
 
 import pkg from "./.lemon/package.json";
 
@@ -16,13 +13,10 @@ export interface CliIO {
 }
 
 export const commands = {
-  repo: { summary: "Open, print, or copy Git repository links", run: runRepo },
-  open: { summary: "Open files and URLs with the platform application", run: runOpen },
-  clip: { summary: "Copy to or paste from the system clipboard", run: runClip },
-  ports: { summary: "List and stop local development servers", run: runPorts },
-  run: { summary: "Run a command and notify when it finishes", run: runCommand },
   info: { summary: "Show a portable machine report", run: runInfo },
-  tree: { summary: "Show an opinionated eza directory tree", run: runTree },
+  repo: { summary: "Open, print, or copy Git repository links", run: runRepo },
+  ports: { summary: "List and stop local development servers", run: runPorts },
+  notify: { summary: "Run a command and notify when it finishes", run: runNotify },
 } as const;
 
 export type CommandName = keyof typeof commands;

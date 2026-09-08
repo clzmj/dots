@@ -21,7 +21,7 @@ interface OpenArguments {
   lines?: LineRange;
 }
 
-export function openHelp(program = "lemon repo open"): string {
+export function openHelp(program = "lemon repo"): string {
   return `Usage:
   ${program} [PATH] [options]
 
@@ -109,7 +109,7 @@ async function execute(parsed: OpenArguments, deps: ResolvedDependencies): Promi
 export async function runOpen(
   args: readonly string[],
   input: CommandDependencies = {},
-  program = "lemon repo open",
+  program = "lemon repo",
 ): Promise<number> {
   const deps = dependencies(input);
   if (args[0] === "--help" || args[0] === "-h") {

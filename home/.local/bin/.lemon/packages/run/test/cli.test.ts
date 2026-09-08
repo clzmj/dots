@@ -18,7 +18,7 @@ async function invoke(...args: string[]) {
 test("--help and --version are CLI controls", async () => {
   const help = await invoke("--help");
   expect(help.status).toBe(0);
-  expect(help.stdout).toContain("lemon run [options] -- <command>");
+  expect(help.stdout).toContain("lemon notify [options] -- <command>");
 
   const version = await invoke("--version");
   expect(version.status).toBe(0);

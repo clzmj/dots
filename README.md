@@ -8,7 +8,8 @@ curl -fsSL https://raw.githubusercontent.com/clzmj/dots/main/setup.sh | sh
 
 The bootstrap is deliberately tiny POSIX shell: it detects macOS, Debian,
 Fedora, or Arch; installs the few download prerequisites; guarantees Bun 1.4
-or newer; and hands control to the typed Bun setup. Everything displaced by
+or newer; and hands control to the typed Bun setup. A complete setup also
+verifies that zsh is the account's login shell. Everything displaced by
 setup is recoverable from `~/.dots-backup/<timestamp>/`.
 
 ## How it works
@@ -111,7 +112,9 @@ lemon --help
 
 `nd` and `rehash-completions` remain Zsh functions because they must mutate the
 calling shell; a child process cannot change its parent's directory or rebuild
-its completion state.
+its completion state. The portable tool PATH lives in `~/.zshenv`, so the same
+user install locations work in interactive sessions and one-shot SSH commands
+on macOS and Linux. `tree` is a shell alias over the shared `eza` package.
 
 ## Local-only data
 

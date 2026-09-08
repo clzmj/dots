@@ -8,13 +8,13 @@ import {
   type Notifier,
 } from "./runner";
 
-const HELP = `lemon run
+const HELP = `lemon notify
 
 ${pkg.description}
 
 Usage:
-  lemon run [options] -- <command> [args...]
-  lemon run <command> [args...]
+  lemon notify [options] -- <command> [args...]
+  lemon notify <command> [args...]
 
 Options:
   --on <when>       Notify always, on success, or on failure (default: always)
@@ -113,7 +113,7 @@ export function parseDuration(value: string): number {
   return milliseconds;
 }
 
-export async function runCommand(
+export async function runNotify(
   args: readonly string[],
   dependencies: CliDependencies = {},
 ): Promise<number> {
@@ -123,8 +123,8 @@ export async function runCommand(
   try {
     action = parseCli(args);
   } catch (cause) {
-    error(`lemon run: ${message(cause)}`);
-    error("Run 'lemon run --help' for usage.");
+    error(`lemon notify: ${message(cause)}`);
+    error("Run 'lemon notify --help' for usage.");
     return 2;
   }
 
@@ -147,7 +147,7 @@ export async function runCommand(
     dependencies.runtime ?? defaultRuntime,
     dependencies.notifier ?? terminalNotifier,
   );
-  if (result.error) error(`lemon run: ${result.error}`);
+  if (result.error) error(`lemon notify: ${result.error}`);
   return action.alwaysZero ? 0 : result.status;
 }
 
@@ -155,4 +155,4 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-if (import.meta.main) process.exit(await runCommand(Bun.argv.slice(2)));
+if (import.meta.main) process.exit(await runNotify(Bun.argv.slice(2)));

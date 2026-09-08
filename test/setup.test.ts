@@ -193,6 +193,34 @@ describe("setup", () => {
     }
   });
 
+  test("rejects a complete package install when zsh cannot become the login shell", async () => {
+    const item = await fixture();
+    const shell = process.platform === "darwin" ? "/bin/zsh" : "/usr/bin/zsh";
+    try {
+      const runner = {
+        run: async (command: readonly [string, ...string[]]) => ({
+          command,
+          exitCode: command[0] === "getent" ? 0 : 1,
+          stdout: command[0] === "getent" ? `user:x:1000:1000::${item.home}:/bin/bash\n` : "",
+          stderr: "permission denied",
+          durationMs: 0,
+        }),
+      };
+      const promise = setup({
+        ...item,
+        platform: "debian",
+        env: { PATH: `${shell.slice(0, shell.lastIndexOf("/"))}:/usr/bin:/bin`, USER: "user" },
+        prompt: new FixedPrompt(true),
+        packageInstaller: async () => ({ planned: [], installed: [], skipped: [], failures: [] }),
+        runner,
+        ...quiet,
+      });
+      await expect(promise).rejects.toThrow("could not set login shell to");
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
+    }
+  });
+
   test("links Lemon into local bin as a runnable Bun command", async () => {
     const root = await mkdtemp(join(tmpdir(), "dots-lemon-setup-test-"));
     const dots = resolve(import.meta.dir, "..");

@@ -17,8 +17,11 @@ describe("lemon dispatcher", () => {
   test("shows the complete command surface", async () => {
     const result = capture();
     expect(await main([], result.io)).toBe(0);
-    for (const command of ["repo", "open", "clip", "ports", "run", "info", "tree"]) {
+    for (const command of ["repo", "ports", "notify", "info"]) {
       expect(result.out.join("\n")).toContain(command);
+    }
+    for (const command of ["open", "clip", "run", "tree"]) {
+      expect(result.out.join("\n")).not.toMatch(new RegExp(`^\\s*${command}\\s`, "m"));
     }
     expect(help()).toContain("lemon help <command>");
   });
