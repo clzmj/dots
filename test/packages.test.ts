@@ -1,3 +1,4 @@
+import { EnvironmentKey, Executable, MachineArchitecture } from "../src/lib/tokens";
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -9,57 +10,64 @@ import {
   detectPlatform,
   installPackages,
   nativePackagesFor,
-  type Platform,
+  Platform,
+  OperatingSystem,
   platformFromEnvironment,
 } from "../src/packages";
 
 describe("package inventory", () => {
   test("detects supported platforms without probing the host", () => {
-    expect(detectPlatform("darwin")).toBe("darwin");
-    expect(detectPlatform("linux", { apt: true, dnf: false, pacman: false })).toBe("debian");
-    expect(detectPlatform("linux", { apt: false, dnf: true, pacman: false })).toBe("fedora");
-    expect(detectPlatform("linux", { apt: false, dnf: false, pacman: true })).toBe("arch");
+    expect(detectPlatform(OperatingSystem.Darwin)).toBe(Platform.Darwin);
+    expect(detectPlatform(OperatingSystem.Linux, { apt: true, dnf: false, pacman: false })).toBe(
+      Platform.Debian,
+    );
+    expect(detectPlatform(OperatingSystem.Linux, { apt: false, dnf: true, pacman: false })).toBe(
+      Platform.Fedora,
+    );
+    expect(detectPlatform(OperatingSystem.Linux, { apt: false, dnf: false, pacman: true })).toBe(
+      Platform.Arch,
+    );
   });
 
   test("maps release architectures", () => {
-    expect(detectArchitecture("x64")).toEqual({
-      deb: "amd64",
-      rpm: "x86_64",
-      release: "x86_64",
-      short: "x64",
+    expect(detectArchitecture(MachineArchitecture.X64)).toEqual({
+      deb: MachineArchitecture.Amd64,
+      rpm: MachineArchitecture.X86_64,
+      release: MachineArchitecture.X86_64,
+      short: MachineArchitecture.X64,
     });
-    expect(detectArchitecture("arm64")).toEqual({
-      deb: "arm64",
-      rpm: "aarch64",
-      release: "aarch64",
-      short: "arm64",
+    expect(detectArchitecture(MachineArchitecture.Arm64)).toEqual({
+      deb: MachineArchitecture.Arm64,
+      rpm: MachineArchitecture.Aarch64,
+      release: MachineArchitecture.Aarch64,
+      short: MachineArchitecture.Arm64,
     });
   });
 
   test("accepts an explicit Docker platform and rejects typos", () => {
-    expect(platformFromEnvironment({ DOTS_DOCKER_PLATFORM: "fedora" }, () => "debian")).toBe(
-      "fedora",
-    );
-    expect(platformFromEnvironment({}, () => "arch")).toBe("arch");
-    expect(() => platformFromEnvironment({ DOTS_DOCKER_PLATFORM: "ubuntu" })).toThrow(
+    expect(
+      platformFromEnvironment({ [EnvironmentKey.DockerPlatform]: "fedora" }, () => Platform.Debian),
+    ).toBe(Platform.Fedora);
+    expect(platformFromEnvironment({}, () => Platform.Arch)).toBe(Platform.Arch);
+    expect(() => platformFromEnvironment({ [EnvironmentKey.DockerPlatform]: "ubuntu" })).toThrow(
       "invalid DOTS_DOCKER_PLATFORM",
     );
   });
 
   test("retains platform-specific package traps", () => {
-    const debian = nativePackagesFor("debian");
+    const debian = nativePackagesFor(Platform.Debian);
     expect(debian.find((entry) => entry.test === "delta")?.packages).toEqual(["git-delta"]);
-    expect(debian.some((entry) => entry.test === "fd")).toBe(false);
-    expect(debian.some((entry) => entry.test === "bat")).toBe(false);
-    expect(nativePackagesFor("arch").find((entry) => entry.test === "gh")?.packages).toEqual([
-      "github-cli",
-    ]);
-    expect(nativePackagesFor("fedora").find((entry) => entry.test === "fd")?.packages).toEqual([
-      "fd-find",
-    ]);
+    expect(debian.some((entry) => entry.test === Executable.Fd)).toBe(false);
+    expect(debian.some((entry) => entry.test === Executable.Bat)).toBe(false);
+    expect(nativePackagesFor(Platform.Arch).find((entry) => entry.test === "gh")?.packages).toEqual(
+      ["github-cli"],
+    );
+    expect(
+      nativePackagesFor(Platform.Fedora).find((entry) => entry.test === Executable.Fd)?.packages,
+    ).toEqual(["fd-find"]);
   });
 
-  for (const platform of ["debian", "fedora", "arch", "darwin"] as Platform[]) {
+  for (const platform of Object.values(Platform)) {
     test(`${platform} dry-run plans without touching disk or network`, async () => {
       const parent = await mkdtemp(join(tmpdir(), "dots-packages-test-"));
       const home = join(parent, "missing-home");
@@ -89,7 +97,7 @@ describe("package inventory", () => {
 
   test("does not install deprecated Lemonaid globals", async () => {
     const report = await installPackages({
-      platform: "darwin",
+      platform: Platform.Darwin,
       home: "/tmp/dots-package-plan",
       dryRun: true,
       exists: () => true,
@@ -110,7 +118,7 @@ describe("package inventory", () => {
     };
     try {
       const report = await installPackages({
-        platform: "debian",
+        platform: Platform.Debian,
         home,
         runner,
         exists: () => false,

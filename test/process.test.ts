@@ -1,3 +1,4 @@
+import { Executable, ShellFlag } from "../src/lib/tokens";
 import { describe, expect, test } from "bun:test";
 import {
   BunCommandRunner,
@@ -10,8 +11,8 @@ import {
 describe("process orchestration", () => {
   test("captures stdout and stderr", async () => {
     const result = await new BunCommandRunner().run([
-      "sh",
-      "-c",
+      Executable.Sh,
+      ShellFlag.Command,
       "printf output; printf warning >&2",
     ]);
     expect(result.exitCode).toBe(0);
@@ -21,22 +22,31 @@ describe("process orchestration", () => {
 
   test("a fast command does not inherit its long timeout", async () => {
     const started = performance.now();
-    await new BunCommandRunner().run(["sh", "-c", "exit 0"], { timeoutMs: 10_000 });
+    await new BunCommandRunner().run([Executable.Sh, ShellFlag.Command, "exit 0"], {
+      timeoutMs: 10_000,
+    });
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   test("timeout kills descendants that keep captured pipes open", async () => {
     const started = performance.now();
-    const result = await new BunCommandRunner().run(["sh", "-c", "sleep 3 & wait"], {
-      timeoutMs: 100,
-    });
+    const result = await new BunCommandRunner().run(
+      [Executable.Sh, ShellFlag.Command, "sleep 3 & wait"],
+      {
+        timeoutMs: 100,
+      },
+    );
     expect(result.exitCode).not.toBe(0);
     expect(performance.now() - started).toBeLessThan(1_500);
   });
 
   test("runChecked reports the command failure", async () => {
     await expect(
-      runChecked(new BunCommandRunner(), ["sh", "-c", "echo bad >&2; exit 7"]),
+      runChecked(new BunCommandRunner(), [
+        Executable.Sh,
+        ShellFlag.Command,
+        "echo bad >&2; exit 7",
+      ]),
     ).rejects.toBeInstanceOf(CommandError);
   });
 

@@ -1,16 +1,30 @@
+import {
+  CliFlag,
+  CommandVerb,
+  EnvironmentKey,
+  EnvironmentValue,
+  Executable,
+  RepositoryPath,
+  ShellFlag,
+  StreamMode,
+  TextEncoding,
+  UserPath,
+} from "../../src/lib/tokens";
 import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { detectPlatform, installPackages } from "../../src/packages";
+import { detectPlatform, installPackages, Platform } from "../../src/packages";
 
 import { InstallMode } from "../../src/setup";
 
 const root = resolve(import.meta.dir, "../..");
-const override = process.env["DOTS_DOCKER_PLATFORM"];
-const expected = (["debian", "fedora", "arch"] as const).find((value) => value === override);
+const override = process.env[EnvironmentKey.DockerPlatform];
+const expected = ([Platform.Debian, Platform.Fedora, Platform.Arch] as const).find(
+  (value) => value === override,
+);
 
 if (expected === undefined) {
-  throw new Error(`invalid DOTS_DOCKER_PLATFORM: ${override ?? "unset"}`);
+  throw new Error(`invalid ${EnvironmentKey.DockerPlatform}: ${override ?? "unset"}`);
 }
 
 const detected = detectPlatform();
@@ -27,9 +41,9 @@ const plan = await installPackages({
   warn: () => {},
 });
 const manager = {
-  ["debian"]: "apt-get",
-  ["fedora"]: "dnf",
-  ["arch"]: "pacman",
+  [Platform.Debian]: Executable.AptGet,
+  [Platform.Fedora]: Executable.Dnf,
+  [Platform.Arch]: Executable.Pacman,
 }[expected];
 if (!plan.planned.some((entry) => entry.includes(manager))) {
   throw new Error(`${expected} dry-run did not plan ${manager}:\n${plan.planned.join("\n")}`);
@@ -38,26 +52,29 @@ if (!plan.planned.some((entry) => entry.includes(manager))) {
 const home = await mkdtemp(join(tmpdir(), `dots-${expected}-`));
 try {
   await Promise.all([
-    run(["sh", "-n", "setup.sh"]),
-    run(["dash", "-n", "setup.sh"]),
-    run(["bun", "test", "--parallel", "--isolate"]),
-    run(["sh", "setup.sh"], {
-      ["HOME"]: home,
-      ["DOTS"]: root,
-      ["DOTS_SKIP_PACKAGES"]: "1",
-      ["DOTS_YES"]: "1",
-      ["DOTS_INSTALL_MODE"]: InstallMode.Copy,
-      ["DOTS_NAME"]: "Container Test",
-      ["DOTS_EMAIL"]: `${expected}@example.invalid`,
+    run([Executable.Sh, ShellFlag.SyntaxCheck, RepositoryPath.Bootstrap]),
+    run([Executable.Dash, ShellFlag.SyntaxCheck, RepositoryPath.Bootstrap]),
+    run([Executable.Bun, CommandVerb.Test, CliFlag.Parallel, CliFlag.Isolate]),
+    run([Executable.Sh, RepositoryPath.Bootstrap], {
+      [EnvironmentKey.Home]: home,
+      [EnvironmentKey.Dots]: root,
+      [EnvironmentKey.SkipPackages]: EnvironmentValue.Enabled,
+      [EnvironmentKey.AssumeYes]: EnvironmentValue.Enabled,
+      [EnvironmentKey.InstallMode]: InstallMode.Copy,
+      [EnvironmentKey.Name]: "Container Test",
+      [EnvironmentKey.Email]: `${expected}@example.invalid`,
     }),
   ]);
 
-  const zshrc = join(home, ".zshrc");
+  const zshrc = join(home, UserPath.Zshrc);
   if (!(await lstat(zshrc)).isFile()) throw new Error("setup did not copy ~/.zshrc");
-  if ((await readFile(zshrc, "utf8")) !== (await readFile(join(root, "home/.zshrc"), "utf8"))) {
+  if (
+    (await readFile(zshrc, TextEncoding.Utf8)) !==
+    (await readFile(join(root, RepositoryPath.HomeZshrc), TextEncoding.Utf8))
+  ) {
     throw new Error("setup copied ~/.zshrc from the wrong checkout");
   }
-  const identity = await readFile(join(home, ".config/git/local"), "utf8");
+  const identity = await readFile(join(home, UserPath.GitIdentity), TextEncoding.Utf8);
   if (!identity.includes(`${expected}@example.invalid`)) {
     throw new Error("setup did not write the container identity");
   }
@@ -73,9 +90,9 @@ async function run(
   const child = Bun.spawn([...command], {
     cwd: root,
     env: { ...process.env, ...env },
-    stdin: "ignore",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdin: StreamMode.Ignore,
+    stdout: StreamMode.Inherit,
+    stderr: StreamMode.Inherit,
   });
   const code = await child.exited;
   if (code !== 0) throw new Error(`${command.join(" ")} exited ${code}`);

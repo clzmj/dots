@@ -1,6 +1,16 @@
 import type { CommandRunner, TaskFailure } from "../lib/process";
 
-export type Platform = "darwin" | "debian" | "fedora" | "arch";
+export enum Platform {
+  Darwin = "darwin",
+  Debian = "debian",
+  Fedora = "fedora",
+  Arch = "arch",
+}
+
+export enum OperatingSystem {
+  Darwin = "darwin",
+  Linux = "linux",
+}
 
 export interface Architecture {
   deb: string;
@@ -11,7 +21,7 @@ export interface Architecture {
 
 export interface PackageContext {
   platform: Platform;
-  os: "darwin" | "linux";
+  os: OperatingSystem;
   arch: Architecture;
   home: string;
   env: Record<string, string>;

@@ -1,4 +1,20 @@
 import {
+  ChshFlag,
+  CliFlag,
+  CommandVerb,
+  EnvironmentKey,
+  EnvironmentValue,
+  Executable,
+  FilePattern,
+  IdFlag,
+  RepositoryPath,
+  SystemErrorCode,
+  SystemPath,
+  TeeFlag,
+  TextEncoding,
+  UserPath,
+} from "./lib/tokens";
+import {
   closeSync,
   constants,
   existsSync,
@@ -26,7 +42,8 @@ import {
   installPackages,
   platformFromEnvironment,
   type PackageReport,
-  type Platform,
+  Platform,
+  OperatingSystem,
 } from "./packages";
 
 const GREEN = "\x1b[1;32m==>\x1b[0m";
@@ -119,7 +136,7 @@ class TtyPrompt implements Prompt {
       if (value === undefined || value === 10 || value === 13) break;
       bytes.push(value);
     }
-    return Buffer.from(bytes).toString("utf8").trim();
+    return Buffer.from(bytes).toString(TextEncoding.Utf8).trim();
   }
 
   close(): void {
@@ -132,9 +149,9 @@ export async function buildSetupPlan(
   home: string,
   mode: InstallMode = InstallMode.Copy,
 ): Promise<SetupPlanEntry[]> {
-  const sourceRoot = join(dots, "home");
+  const sourceRoot = join(dots, RepositoryPath.Home);
   const entries: SetupPlanEntry[] = [];
-  const glob = new Bun.Glob("**/*");
+  const glob = new Bun.Glob(FilePattern.Recursive);
   for await (const path of glob.scan({ cwd: sourceRoot, dot: true, onlyFiles: true })) {
     entries.push({
       mode: mode === InstallMode.Symlink ? SetupAction.Link : SetupAction.Copy,
@@ -143,7 +160,7 @@ export async function buildSetupPlan(
     });
   }
   entries.sort((left, right) => left.destination.localeCompare(right.destination));
-  entries.push({ mode: SetupAction.Write, destination: join(home, ".config/git/local") });
+  entries.push({ mode: SetupAction.Write, destination: join(home, UserPath.GitIdentity) });
   return entries;
 }
 
@@ -158,10 +175,10 @@ export async function findConflicts(
     if (await isInstalled(entry)) continue;
     conflicts.push(relative(home, entry.destination));
   }
-  const legacyGit = join(home, ".gitconfig");
+  const legacyGit = join(home, UserPath.LegacyGitConfig);
   try {
     const stat = await lstat(legacyGit);
-    if (stat.isFile() && !stat.isSymbolicLink()) conflicts.push(".gitconfig");
+    if (stat.isFile() && !stat.isSymbolicLink()) conflicts.push(UserPath.LegacyGitConfig);
   } catch (error) {
     if (!isMissing(error)) throw error;
   }
@@ -174,26 +191,27 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   const env: Record<string, string | undefined> = {
     ...process.env,
     ...options.env,
-    ["HOME"]: home,
+    [EnvironmentKey.Home]: home,
   };
   const dryRun = options.dryRun ?? false;
-  const skipPackages = options.skipPackages ?? env["DOTS_SKIP_PACKAGES"] === "1";
-  const assumeYes = env["DOTS_YES"] === "1";
+  const skipPackages =
+    options.skipPackages ?? env[EnvironmentKey.SkipPackages] === EnvironmentValue.Enabled;
+  const assumeYes = env[EnvironmentKey.AssumeYes] === EnvironmentValue.Enabled;
   const prompt = options.prompt ?? new TtyPrompt(assumeYes);
   const runner = options.runner ?? new BunCommandRunner();
   const log = options.log ?? ((message) => console.log(`${GREEN} ${message}`));
   const warn = options.warn ?? ((message) => console.error(`${YELLOW} ${message}`));
   const timestamp = formatTimestamp(new Date());
-  const backup = join(home, ".dots-backup", timestamp);
+  const backup = join(home, UserPath.Backup, timestamp);
   let packageFailures = 0;
 
   try {
     log(
-      `${options.platform === "darwin" ? "darwin" : "linux"} detected${prompt.interactive ? "" : " (non-interactive)"}`,
+      `${options.platform === Platform.Darwin ? OperatingSystem.Darwin : OperatingSystem.Linux} detected${prompt.interactive ? "" : " (non-interactive)"}`,
     );
     log("configuration");
     const installMode = resolveInstallMode(env, prompt, warn);
-    const answersFile = join(home, ".config/dots/answers");
+    const answersFile = join(home, UserPath.Answers);
     const cached = await readAnswers(answersFile);
     const name = resolveAnswer(
       AnswerKey.Name,
@@ -288,8 +306,8 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       }
     }
 
-    const legacyGit = join(home, ".gitconfig");
-    if (overwrite && conflicts.includes(".gitconfig")) {
+    const legacyGit = join(home, UserPath.LegacyGitConfig);
+    if (overwrite && conflicts.includes(UserPath.LegacyGitConfig)) {
       if (dryRun) log("[plan] backup ~/.gitconfig");
       else {
         await stash(legacyGit, backup, home);
@@ -322,13 +340,16 @@ function resolveInstallMode(
   prompt: Prompt,
   warn: (message: string) => void,
 ): InstallMode {
-  const override = env["DOTS_INSTALL_MODE"];
+  const override = env[EnvironmentKey.InstallMode];
   if (override) {
     const mode = Object.values(InstallMode).find((value) => value === override);
     if (mode !== undefined) return mode;
-    throw new Error(`invalid DOTS_INSTALL_MODE: ${override} (expected copy or symlink)`);
+    throw new Error(
+      `invalid ${EnvironmentKey.InstallMode}: ${override} (expected copy or symlink)`,
+    );
   }
-  if (env["DOTS_YES"] === "1" || !prompt.interactive) return InstallMode.Copy;
+  if (env[EnvironmentKey.AssumeYes] === EnvironmentValue.Enabled || !prompt.interactive)
+    return InstallMode.Copy;
   while (true) {
     const answer = prompt
       .ask("Install dotfiles: copy or symlink", InstallMode.Copy)
@@ -358,7 +379,7 @@ export async function readAnswers(path: string): Promise<Map<AnswerKey, string>>
   const answers = new Map<AnswerKey, string>();
   let content: string;
   try {
-    content = await readFile(path, "utf8");
+    content = await readFile(path, TextEncoding.Utf8);
   } catch (error) {
     if (isMissing(error)) return answers;
     throw error;
@@ -472,7 +493,7 @@ async function isInstalled(entry: SetupPlanEntry): Promise<boolean> {
 }
 
 function isMissing(error: unknown): boolean {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+  return error instanceof Error && "code" in error && error.code === SystemErrorCode.MissingFile;
 }
 
 function formatTimestamp(date: Date): string {
@@ -487,9 +508,10 @@ async function ensureLoginShell(
   dryRun: boolean,
   log: (message: string) => void,
 ): Promise<void> {
-  const zsh = whichInPath("zsh", env["PATH"]);
+  const zsh = whichInPath(Executable.Zsh, env[EnvironmentKey.Path]);
   if (!zsh) throw new Error("zsh is required but was not installed");
-  const user = env["USER"] || env["LOGNAME"] || process.env["USER"];
+  const user =
+    env[EnvironmentKey.User] || env[EnvironmentKey.Logname] || process.env[EnvironmentKey.User];
   if (!user) throw new Error("cannot set the zsh login shell without USER or LOGNAME");
   const current = await loginShell(platform, runner, user, env);
   if (current === zsh) return;
@@ -500,15 +522,16 @@ async function ensureLoginShell(
 
   let shells = "";
   try {
-    shells = readFileSync("/etc/shells", "utf8");
+    shells = readFileSync(SystemPath.Shells, TextEncoding.Utf8);
   } catch {}
   if (!shells.split("\n").includes(zsh)) {
-    const tee = privileged(["tee", "-a", "/etc/shells"]);
+    const tee = privileged([Executable.Tee, TeeFlag.Append, SystemPath.Shells]);
     await runner.run(tee, { env, stdinText: `${zsh}\n` });
   }
 
-  let result = await runner.run(privileged(["chsh", "-s", zsh, user]), { env });
-  if (result.exitCode !== 0) result = await runner.run(["chsh", "-s", zsh], { env });
+  let result = await runner.run(privileged([Executable.Chsh, ChshFlag.Shell, zsh, user]), { env });
+  if (result.exitCode !== 0)
+    result = await runner.run([Executable.Chsh, ChshFlag.Shell, zsh], { env });
   const verified = await loginShell(platform, runner, user, env);
   if (verified === zsh) log(`login shell set to ${zsh}`);
   else throw new Error(`could not set login shell to ${zsh}; run: sudo chsh -s ${zsh} ${user}`);
@@ -520,7 +543,10 @@ async function loginShell(
   user: string,
   env: Record<string, string | undefined>,
 ): Promise<string> {
-  const command: Command = platform === "darwin" ? ["id", "-P", user] : ["getent", "passwd", user];
+  const command: Command =
+    platform === Platform.Darwin
+      ? [Executable.Id, IdFlag.PasswordEntry, user]
+      : [Executable.Getent, CommandVerb.Password, user];
   const result = await runner.run(command, { env });
   if (result.exitCode !== 0) return "";
   return result.stdout.trim().split(":").at(-1) ?? "";
@@ -529,7 +555,7 @@ async function loginShell(
 function privileged(command: Command): Command {
   return typeof process.getuid === "function" && process.getuid() === 0
     ? command
-    : (["sudo", ...command] as Command);
+    : ([Executable.Sudo, ...command] as Command);
 }
 
 function whichInPath(binary: string, path: string | undefined): string | undefined {
@@ -545,20 +571,20 @@ function whichInPath(binary: string, path: string | undefined): string | undefin
 async function main(): Promise<void> {
   const root = resolve(import.meta.dir, "..");
   const dryRun =
-    process.argv.includes("--dry-run") ||
-    process.argv.includes("--plan") ||
-    process.env["DOTS_DRY_RUN"] === "1";
+    process.argv.includes(CliFlag.DryRun) ||
+    process.argv.includes(CliFlag.Plan) ||
+    process.env[EnvironmentKey.DryRun] === EnvironmentValue.Enabled;
   const platform = platformFromEnvironment();
   await setup({
-    dots: process.env["DOTS"] || root,
+    dots: process.env[EnvironmentKey.Dots] || root,
     home:
-      process.env["HOME"] ||
+      process.env[EnvironmentKey.Home] ||
       (() => {
         throw new Error("HOME is not set");
       })(),
     platform,
     dryRun,
-    skipPackages: process.env["DOTS_SKIP_PACKAGES"] === "1",
+    skipPackages: process.env[EnvironmentKey.SkipPackages] === EnvironmentValue.Enabled,
   });
 }
 

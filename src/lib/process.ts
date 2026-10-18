@@ -1,3 +1,4 @@
+import { ProcessSignal, RuntimePlatform, StreamMode } from "./tokens";
 export type Command = readonly [string, ...string[]];
 
 export interface RunOptions {
@@ -40,15 +41,15 @@ export function formatCommand(command: Command): string {
 export class BunCommandRunner implements CommandRunner {
   async run(command: Command, options: RunOptions = {}): Promise<CommandResult> {
     const started = performance.now();
-    const subprocess = Bun.spawn(command, {
+    const subprocess = Bun.spawn([...command], {
       cwd: options.cwd,
       env: mergeEnv(options.env),
       // A fresh process group lets a timeout terminate grandchildren holding
       // stdout/stderr pipes open (installers frequently spawn helpers).
-      detached: process.platform !== "win32",
-      stdin: options.stdinText === undefined ? "inherit" : "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
+      detached: process.platform !== RuntimePlatform.Windows,
+      stdin: options.stdinText === undefined ? StreamMode.Inherit : StreamMode.Pipe,
+      stdout: StreamMode.Pipe,
+      stderr: StreamMode.Pipe,
     });
 
     if (options.stdinText !== undefined && subprocess.stdin !== undefined) {
@@ -61,10 +62,14 @@ export class BunCommandRunner implements CommandRunner {
     const timeoutTimer = options.timeoutMs
       ? setTimeout(() => {
           if (settled) return;
-          killProcessGroup(subprocess.pid, "SIGTERM", () => subprocess.kill("SIGTERM"));
+          killProcessGroup(subprocess.pid, ProcessSignal.Terminate, () =>
+            subprocess.kill(ProcessSignal.Terminate),
+          );
           forceTimer = setTimeout(() => {
             if (!settled)
-              killProcessGroup(subprocess.pid, "SIGKILL", () => subprocess.kill("SIGKILL"));
+              killProcessGroup(subprocess.pid, ProcessSignal.Kill, () =>
+                subprocess.kill(ProcessSignal.Kill),
+              );
           }, 1_000);
         }, options.timeoutMs)
       : undefined;
@@ -89,7 +94,7 @@ export class BunCommandRunner implements CommandRunner {
 }
 
 function killProcessGroup(pid: number, signal: NodeJS.Signals, fallback: () => void): void {
-  if (process.platform !== "win32") {
+  if (process.platform !== RuntimePlatform.Windows) {
     try {
       process.kill(-pid, signal);
       return;

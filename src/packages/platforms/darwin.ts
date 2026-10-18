@@ -1,37 +1,41 @@
+import { PackageName, CommandVerb, Executable, HomebrewPath, PackageFlag } from "../../lib/tokens";
 import { join } from "node:path";
-import type { PlatformInstaller } from "./types";
+import { Platform } from "../types";
+import { PlatformPreparation, type NamedCommand, type PlatformInstaller } from "./types";
 
 export const darwin: PlatformInstaller = {
-  platform: "darwin",
-  prepare: "homebrew",
+  platform: Platform.Darwin,
+  prepare: PlatformPreparation.Homebrew,
   native: [
-    { test: "@brew/git", packages: ["git"] },
-    { test: "@brew/curl", packages: ["curl"] },
-    { test: "rg", packages: ["ripgrep"] },
-    { test: "fd", packages: ["fd"] },
-    { test: "bat", packages: ["bat"] },
-    { test: "eza", packages: ["eza"] },
-    { test: "fzf", packages: ["fzf"] },
-    { test: "lsof", packages: ["lsof"] },
-    { test: "jq", packages: ["jq"] },
-    { test: "delta", packages: ["git-delta"] },
-    { test: "gh", packages: ["gh"] },
-    { test: "btm", packages: ["bottom"] },
-    { test: "hx", packages: ["helix"] },
-    { test: "taplo", packages: ["taplo"] },
-    { test: "go", packages: ["go"] },
-    { test: "aws", packages: ["awscli"] },
-    { test: "onefetch", packages: ["onefetch"] },
-    { test: "tokei", packages: ["tokei"] },
-    { test: "usql", packages: ["xo/xo/usql"] },
-    { test: "terraform", packages: ["hashicorp/tap/terraform"] },
-    { test: "terraform-ls", packages: ["hashicorp/tap/terraform-ls"] },
-    { test: "@brew/zsh-autosuggestions", packages: ["zsh-autosuggestions"] },
-    { test: "@brew/zsh-syntax-highlighting", packages: ["zsh-syntax-highlighting"] },
+    { test: HomebrewPath.Git, packages: [PackageName.Git] },
+    { test: HomebrewPath.Curl, packages: [PackageName.Curl] },
+    { test: Executable.Ripgrep, packages: [PackageName.Ripgrep] },
+    { test: Executable.Fd, packages: [PackageName.Fd] },
+    { test: Executable.Bat, packages: [PackageName.Bat] },
+    { test: Executable.Eza, packages: [PackageName.Eza] },
+    { test: Executable.Fzf, packages: [PackageName.Fzf] },
+    { test: Executable.Lsof, packages: [PackageName.Lsof] },
+    { test: Executable.Jq, packages: [PackageName.Jq] },
+    { test: Executable.Delta, packages: [PackageName.GitDelta] },
+    { test: Executable.GitHub, packages: [PackageName.GitHub] },
+    { test: Executable.Bottom, packages: [PackageName.Bottom] },
+    { test: Executable.Hx, packages: [PackageName.Helix] },
+    { test: Executable.Taplo, packages: [PackageName.Taplo] },
+    { test: Executable.Go, packages: [PackageName.Go] },
+    { test: Executable.Aws, packages: [PackageName.AwsCli] },
+    { test: Executable.Onefetch, packages: [PackageName.Onefetch] },
+    { test: Executable.Tokei, packages: [PackageName.Tokei] },
+    { test: Executable.Usql, packages: [PackageName.Usql] },
+    { test: Executable.Terraform, packages: [PackageName.Terraform] },
+    { test: Executable.TerraformLanguageServer, packages: [PackageName.TerraformLanguageServer] },
+    { test: HomebrewPath.Autosuggestions, packages: [PackageName.ZshAutosuggestions] },
+    { test: HomebrewPath.SyntaxHighlighting, packages: [PackageName.ZshSyntaxHighlighting] },
   ],
-  nativeCommands(packages, context) {
-    const commands =
-      packages.length > 0 ? [{ name: "brew", command: ["brew", "install", ...packages] }] : [];
+  nativeCommands(packages, context): NamedCommand[] {
+    const commands: NamedCommand[] =
+      packages.length > 0
+        ? [{ name: Executable.Brew, command: [Executable.Brew, CommandVerb.Install, ...packages] }]
+        : [];
     const userFont = join(context.home, "Library/Fonts/JetBrainsMonoNerdFont-Regular.ttf");
     if (
       !context.exists(userFont) &&
@@ -39,7 +43,12 @@ export const darwin: PlatformInstaller = {
     ) {
       commands.push({
         name: "font",
-        command: ["brew", "install", "--cask", "font-jetbrains-mono-nerd-font"],
+        command: [
+          Executable.Brew,
+          CommandVerb.Install,
+          PackageFlag.Cask,
+          PackageName.JetBrainsMonoNerdFont,
+        ],
       });
     }
     return commands;

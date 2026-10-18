@@ -1,9 +1,10 @@
+import { CliFlag } from "./lib/tokens";
 export * from "./packages/install";
 
 import { installPackages, platformFromEnvironment } from "./packages/install";
 
 if (import.meta.main) {
-  const dryRun = process.argv.includes("--dry-run") || process.argv.includes("--plan");
+  const dryRun = process.argv.includes(CliFlag.DryRun) || process.argv.includes(CliFlag.Plan);
   installPackages({ platform: platformFromEnvironment(), dryRun })
     .then((report) => {
       if (dryRun) {

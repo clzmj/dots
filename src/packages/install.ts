@@ -1,3 +1,23 @@
+import {
+  PackageName,
+  PackageTaskName,
+  ReleaseRepository,
+  ArchiveFlag,
+  CommandVerb,
+  EnvironmentKey,
+  EnvironmentValue,
+  Executable,
+  FilePattern,
+  DirectoryName,
+  HomebrewPath,
+  MachineArchitecture,
+  PackageFlag,
+  RemoveFlag,
+  RustupArgument,
+  ShellFlag,
+  SystemPath,
+  UserPath,
+} from "../lib/tokens";
 import { accessSync, constants, existsSync } from "node:fs";
 import { chmod, cp, lstat, mkdir, mkdtemp, readlink, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,32 +37,39 @@ import {
   type PlatformRelease,
   platformInstallers,
   type Release,
+  PlatformPreparation,
+  ReleaseKind,
+  ReleasePhase,
 } from "./platforms";
-import type {
-  Architecture,
-  InstallOptions,
-  PackageContext,
-  PackageReport,
+import {
+  type Architecture,
+  type InstallOptions,
+  type PackageContext,
+  type PackageReport,
+  OperatingSystem,
   Platform,
 } from "./types";
 
-export type {
-  Architecture,
-  InstallOptions,
-  PackageContext,
-  PackageReport,
-  Platform,
-} from "./types";
+export type { Architecture, InstallOptions, PackageContext, PackageReport } from "./types";
+export { OperatingSystem, Platform } from "./types";
+
+enum DownloadFormat {
+  Deb = "deb",
+  RpmWithTarFallback = "rpm with tar fallback",
+  TarGz = "tar.gz",
+  Binary = "binary",
+  HelixRuntime = "tar.xz + runtime",
+}
 
 export function detectPlatform(
   os = process.platform,
   commands: { apt?: boolean; dnf?: boolean; pacman?: boolean } = {},
 ): Platform {
-  if (os === "darwin") return "darwin";
-  if (os !== "linux") throw new Error(`unsupported OS: ${os}`);
-  if (commands.apt ?? Bun.which("apt-get") !== null) return "debian";
-  if (commands.dnf ?? Bun.which("dnf") !== null) return "fedora";
-  if (commands.pacman ?? Bun.which("pacman") !== null) return "arch";
+  if (os === OperatingSystem.Darwin) return Platform.Darwin;
+  if (os !== OperatingSystem.Linux) throw new Error(`unsupported OS: ${os}`);
+  if (commands.apt ?? Bun.which(Executable.AptGet) !== null) return Platform.Debian;
+  if (commands.dnf ?? Bun.which(Executable.Dnf) !== null) return Platform.Fedora;
+  if (commands.pacman ?? Bun.which(Executable.Pacman) !== null) return Platform.Arch;
   throw new Error("unsupported Linux distribution (need apt-get, dnf, or pacman)");
 }
 
@@ -50,21 +77,32 @@ export function platformFromEnvironment(
   env: Record<string, string | undefined> = process.env,
   fallback: () => Platform = () => detectPlatform(),
 ): Platform {
-  const override = env.DOTS_DOCKER_PLATFORM;
+  const override = env[EnvironmentKey.DockerPlatform];
   if (override === undefined || override === "") return fallback();
-  if (["darwin", "debian", "fedora", "arch"].includes(override)) return override as Platform;
-  throw new Error(`invalid DOTS_DOCKER_PLATFORM: ${override}`);
+  const platform = Object.values(Platform).find((value) => value === override);
+  if (platform !== undefined) return platform;
+  throw new Error(`invalid ${EnvironmentKey.DockerPlatform}: ${override}`);
 }
 
-export function detectArchitecture(machine = process.arch): Architecture {
+export function detectArchitecture(machine: string = process.arch): Architecture {
   switch (machine) {
-    case "x64":
-    case "x86_64":
-    case "amd64":
-      return { deb: "amd64", rpm: "x86_64", release: "x86_64", short: "x64" };
-    case "arm64":
-    case "aarch64":
-      return { deb: "arm64", rpm: "aarch64", release: "aarch64", short: "arm64" };
+    case MachineArchitecture.X64:
+    case MachineArchitecture.X86_64:
+    case MachineArchitecture.Amd64:
+      return {
+        deb: MachineArchitecture.Amd64,
+        rpm: MachineArchitecture.X86_64,
+        release: MachineArchitecture.X86_64,
+        short: MachineArchitecture.X64,
+      };
+    case MachineArchitecture.Arm64:
+    case MachineArchitecture.Aarch64:
+      return {
+        deb: MachineArchitecture.Arm64,
+        rpm: MachineArchitecture.Aarch64,
+        release: MachineArchitecture.Aarch64,
+        short: MachineArchitecture.Arm64,
+      };
     default:
       return { deb: machine, rpm: machine, release: machine, short: machine };
   }
@@ -77,13 +115,13 @@ export function nativePackagesFor(platform: Platform): readonly NativePackage[] 
 export async function installPackages(options: InstallOptions = {}): Promise<PackageReport> {
   const platform = options.platform ?? detectPlatform();
   const installer = platformInstallers[platform];
-  const home = options.home ?? process.env.HOME;
+  const home = options.home ?? process.env[EnvironmentKey.Home];
   if (!home) throw new Error("HOME is not set");
 
   const env = normalizedEnv(home, options.env);
   const context: PackageContext = {
     platform,
-    os: platform === "darwin" ? "darwin" : "linux",
+    os: platform === Platform.Darwin ? OperatingSystem.Darwin : OperatingSystem.Linux,
     arch: options.arch ?? detectArchitecture(),
     home,
     env,
@@ -95,12 +133,12 @@ export async function installPackages(options: InstallOptions = {}): Promise<Pac
     planned: [],
   };
 
-  if (!context.dryRun) await mkdir(join(home, ".local/bin"), { recursive: true });
+  if (!context.dryRun) await mkdir(join(home, UserPath.LocalBin), { recursive: true });
   const skipped: string[] = [];
   const failures: TaskFailure[] = [];
   const installed: string[] = [];
 
-  if (installer.prepare === "homebrew") await ensureHomebrew(context, failures);
+  if (installer.prepare === PlatformPreparation.Homebrew) await ensureHomebrew(context, failures);
   if (failures.length > 0) {
     for (const failure of failures)
       context.warn(`  ✗ ${failure.name}: ${errorMessage(failure.error)}`);
@@ -144,22 +182,22 @@ function normalizedEnv(home: string, overrides: InstallOptions["env"]): Record<s
     if (value === undefined) delete env[key];
     else env[key] = value;
   }
-  env.HOME = home;
-  env.PATH = [
-    join(home, ".local/bin"),
-    join(home, ".bun/bin"),
-    join(home, ".cargo/bin"),
-    join(home, ".opencode/bin"),
-    join(home, "go/bin"),
-    "/usr/local/go/bin",
-    env.PATH ?? "",
+  env[EnvironmentKey.Home] = home;
+  env[EnvironmentKey.Path] = [
+    join(home, UserPath.LocalBin),
+    join(home, UserPath.BunBin),
+    join(home, UserPath.CargoBin),
+    join(home, UserPath.OpencodeBin),
+    join(home, UserPath.GoBin),
+    SystemPath.GoBin,
+    env[EnvironmentKey.Path] ?? "",
   ].join(":");
   return env;
 }
 
 function defaultExists(test: string, env: Record<string, string>): boolean {
   if (test.includes("/")) return existsSync(test);
-  for (const directory of (env.PATH ?? "").split(":")) {
+  for (const directory of (env[EnvironmentKey.Path] ?? "").split(":")) {
     if (!directory) continue;
     try {
       accessSync(join(directory, test), constants.X_OK);
@@ -170,12 +208,16 @@ function defaultExists(test: string, env: Record<string, string>): boolean {
 }
 
 function testPath(context: PackageContext, test: string): string {
-  if (!test.startsWith("@brew/")) return test;
-  const relative = test.slice("@brew/".length);
+  if (!test.startsWith(HomebrewPath.Prefix)) return test;
+  const relative = test.slice(HomebrewPath.Prefix.length);
   const prefix =
-    context.env.HOMEBREW_PREFIX ?? (process.arch === "arm64" ? "/opt/homebrew" : "/usr/local");
-  if (relative === "git" || relative === "curl") return join(prefix, "bin", relative);
-  return join(prefix, "share", relative, `${relative}.zsh`);
+    context.env[EnvironmentKey.HomebrewPrefix] ??
+    (process.arch === MachineArchitecture.Arm64
+      ? SystemPath.HomebrewArmPrefix
+      : SystemPath.LocalPrefix);
+  if (relative === Executable.Git || relative === Executable.Curl)
+    return join(prefix, DirectoryName.Bin, relative);
+  return join(prefix, DirectoryName.Share, relative, `${relative}.zsh`);
 }
 
 function missing(context: PackageContext, test: string, skipped: string[]): boolean {
@@ -187,7 +229,7 @@ function missing(context: PackageContext, test: string, skipped: string[]): bool
 function sudo(command: Command): Command {
   return typeof process.getuid === "function" && process.getuid() === 0
     ? command
-    : (["sudo", ...command] as Command);
+    : ([Executable.Sudo, ...command] as Command);
 }
 
 async function commandTask(
@@ -202,25 +244,35 @@ async function commandTask(
 }
 
 async function ensureHomebrew(context: PackageContext, failures: TaskFailure[]): Promise<void> {
-  const known = [Bun.which("brew"), "/opt/homebrew/bin/brew", "/usr/local/bin/brew"].find(
-    (candidate) => candidate && existsSync(candidate),
-  );
+  const known = [
+    Bun.which(Executable.Brew),
+    SystemPath.HomebrewArmExecutable,
+    SystemPath.HomebrewIntelExecutable,
+  ].find((candidate) => candidate && existsSync(candidate));
   if (!known) {
     try {
-      context.env.NONINTERACTIVE = "1";
+      context.env[EnvironmentKey.NonInteractive] = EnvironmentValue.Enabled;
       const script = context.dryRun
         ? ""
         : await downloadText("https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh");
-      await commandTask(context, "homebrew", ["/bin/bash", "-s"], script);
+      await commandTask(
+        context,
+        PackageTaskName.Homebrew,
+        [Executable.BashSystem, ShellFlag.Stdin],
+        script,
+      );
     } catch (error) {
-      failures.push({ name: "homebrew", error });
+      failures.push({ name: PackageTaskName.Homebrew, error });
       return;
     }
   }
   const brew =
-    known ?? (process.arch === "arm64" ? "/opt/homebrew/bin/brew" : "/usr/local/bin/brew");
-  context.env.PATH = `${dirname(brew)}:${context.env.PATH}`;
-  context.env.HOMEBREW_PREFIX = dirname(dirname(brew));
+    known ??
+    (process.arch === MachineArchitecture.Arm64
+      ? SystemPath.HomebrewArmExecutable
+      : SystemPath.HomebrewIntelExecutable);
+  context.env[EnvironmentKey.Path] = `${dirname(brew)}:${context.env[EnvironmentKey.Path]}`;
+  context.env[EnvironmentKey.HomebrewPrefix] = dirname(dirname(brew));
 }
 
 async function installNative(context: PackageContext, skipped: string[]) {
@@ -248,10 +300,10 @@ async function installPlatformReleases(context: PackageContext, skipped: string[
     missing(context, release.test, skipped),
   );
   const serial = releases
-    .filter((release) => release.phase === "serial")
+    .filter((release) => release.phase === ReleasePhase.Serial)
     .map((release) => platformReleaseTask(context, release));
   const parallel = releases
-    .filter((release) => release.phase === "parallel")
+    .filter((release) => release.phase === ReleasePhase.Parallel)
     .map((release) => platformReleaseTask(context, release));
   const serialResult = await runSerial(serial);
   const parallelResult = await runParallel(parallel);
@@ -263,13 +315,13 @@ async function installPlatformReleases(context: PackageContext, skipped: string[
 
 function platformReleaseTask(context: PackageContext, release: PlatformRelease): Task {
   switch (release.kind) {
-    case "deb":
+    case ReleaseKind.Deb:
       return releaseDebTask(context, release.name, release.repo, (latest) =>
         release.asset(latest, context.arch),
       );
-    case "rpm-bottom":
+    case ReleaseKind.RpmBottom:
       return bottomRpmTask(context);
-    case "tar":
+    case ReleaseKind.Tar:
       return tarBinaryTask(
         context,
         release.name,
@@ -277,7 +329,7 @@ function platformReleaseTask(context: PackageContext, release: PlatformRelease):
         (latest) => release.asset(latest, context.arch),
         release.binary,
       );
-    case "binary":
+    case ReleaseKind.Binary:
       return singleBinaryTask(
         context,
         release.name,
@@ -285,9 +337,9 @@ function platformReleaseTask(context: PackageContext, release: PlatformRelease):
         (latest) => release.asset(latest, context.arch),
         release.binary,
       );
-    case "helix":
+    case ReleaseKind.Helix:
       return helixTask(context);
-    case "go":
+    case ReleaseKind.Go:
       return goReleaseTask(context);
   }
 }
@@ -301,16 +353,23 @@ function releaseDebTask(
   return {
     name,
     run: async () => {
-      if (context.dryRun) return planDownload(context, name, repo, "deb");
+      if (context.dryRun) return planDownload(context, name, repo, DownloadFormat.Deb);
       const download = await downloadRelease(repo, asset);
       try {
-        const first = await context.runner.run(sudo(["dpkg", "-i", download.path]), {
-          env: context.env,
-        });
-        if (first.exitCode !== 0)
-          await runChecked(context.runner, sudo(["apt-get", "install", "-f", "-y"]), {
+        const first = await context.runner.run(
+          sudo([Executable.Dpkg, PackageFlag.DpkgInstall, download.path]),
+          {
             env: context.env,
-          });
+          },
+        );
+        if (first.exitCode !== 0)
+          await runChecked(
+            context.runner,
+            sudo([Executable.AptGet, CommandVerb.Install, PackageFlag.FixBroken, PackageFlag.Yes]),
+            {
+              env: context.env,
+            },
+          );
       } finally {
         await download.cleanup();
       }
@@ -320,28 +379,42 @@ function releaseDebTask(
 
 function bottomRpmTask(context: PackageContext): Task {
   return {
-    name: "bottom",
+    name: PackageTaskName.Bottom,
     run: async () => {
       if (context.dryRun)
-        return planDownload(context, "bottom", "ClementTsang/bottom", "rpm with tar fallback");
+        return planDownload(
+          context,
+          PackageTaskName.Bottom,
+          ReleaseRepository.Bottom,
+          DownloadFormat.RpmWithTarFallback,
+        );
       try {
         const download = await downloadRelease(
-          "ClementTsang/bottom",
+          ReleaseRepository.Bottom,
           ({ version }) => `bottom-${version}-1.${context.arch.rpm}.rpm`,
         );
         try {
-          await runChecked(context.runner, sudo(["rpm", "-Uvh", "--replacepkgs", download.path]), {
-            env: context.env,
-          });
+          await runChecked(
+            context.runner,
+            sudo([
+              Executable.Rpm,
+              PackageFlag.RpmUpgrade,
+              PackageFlag.ReplacePackages,
+              download.path,
+            ]),
+            {
+              env: context.env,
+            },
+          );
         } finally {
           await download.cleanup();
         }
       } catch {
         await installTarBinary(
           context,
-          "ClementTsang/bottom",
+          ReleaseRepository.Bottom,
           () => `bottom_${context.arch.release}-unknown-linux-gnu.tar.gz`,
-          "btm",
+          Executable.Bottom,
         );
       }
     },
@@ -358,7 +431,7 @@ function tarBinaryTask(
   return {
     name,
     run: async () => {
-      if (context.dryRun) return planDownload(context, name, repo, "tar.gz");
+      if (context.dryRun) return planDownload(context, name, repo, DownloadFormat.TarGz);
       await installTarBinary(context, repo, asset, binary);
     },
   };
@@ -377,7 +450,7 @@ async function installTarBinary(
     await new Bun.Archive(bytes).extract(extracted, { glob: [`**/${binary}`, binary] });
     const source = await findExecutable(extracted, binary);
     if (!source) throw new Error(`${binary} missing from ${basename(download.path)}`);
-    const destination = join(context.home, ".local/bin", binary);
+    const destination = join(context.home, UserPath.LocalBin, binary);
     await cp(source, destination);
     await chmod(destination, 0o755);
   } finally {
@@ -396,12 +469,12 @@ function singleBinaryTask(
   return {
     name,
     run: async () => {
-      if (context.dryRun) return planDownload(context, name, repo, "binary");
+      if (context.dryRun) return planDownload(context, name, repo, DownloadFormat.Binary);
       const download = await downloadRelease(repo, asset);
       try {
         let bytes = new Uint8Array(await Bun.file(download.path).arrayBuffer());
         if (download.path.endsWith(".gz")) bytes = Bun.gunzipSync(bytes);
-        const destination = join(context.home, ".local/bin", binary);
+        const destination = join(context.home, UserPath.LocalBin, binary);
         await Bun.write(destination, bytes);
         await chmod(destination, 0o755);
       } finally {
@@ -413,25 +486,34 @@ function singleBinaryTask(
 
 function helixTask(context: PackageContext): Task {
   return {
-    name: "helix",
+    name: Executable.Helix,
     run: async () => {
       if (context.dryRun)
-        return planDownload(context, "helix", "helix-editor/helix", "tar.xz + runtime");
+        return planDownload(
+          context,
+          Executable.Helix,
+          ReleaseRepository.Helix,
+          DownloadFormat.HelixRuntime,
+        );
       const download = await downloadRelease(
-        "helix-editor/helix",
+        ReleaseRepository.Helix,
         ({ version }) => `helix-${version}-${context.arch.release}-linux.tar.xz`,
       );
       const extracted = await mkdtemp(join(tmpdir(), "dots-helix-"));
       try {
-        await runChecked(context.runner, ["tar", "-xJf", download.path, "-C", extracted], {
-          env: context.env,
-        });
-        const hx = await findExecutable(extracted, "hx");
+        await runChecked(
+          context.runner,
+          [Executable.Tar, ArchiveFlag.ExtractXz, download.path, ArchiveFlag.Directory, extracted],
+          {
+            env: context.env,
+          },
+        );
+        const hx = await findExecutable(extracted, Executable.Hx);
         if (!hx) throw new Error(`hx missing from ${basename(download.path)}`);
-        await cp(hx, join(context.home, ".local/bin/hx"));
-        await chmod(join(context.home, ".local/bin/hx"), 0o755);
+        await cp(hx, join(context.home, UserPath.Hx));
+        await chmod(join(context.home, UserPath.Hx), 0o755);
         const sourceRuntime = join(dirname(hx), "runtime");
-        const targetRuntime = join(context.home, ".config/helix/runtime");
+        const targetRuntime = join(context.home, UserPath.HelixRuntime);
         await rm(targetRuntime, { recursive: true, force: true });
         await mkdir(dirname(targetRuntime), { recursive: true });
         await cp(sourceRuntime, targetRuntime, { recursive: true });
@@ -445,9 +527,10 @@ function helixTask(context: PackageContext): Task {
 
 function goReleaseTask(context: PackageContext): Task {
   return {
-    name: "go",
+    name: Executable.Go,
     run: async () => {
-      if (context.dryRun) return planDownload(context, "go", "go.dev", "tar.gz");
+      if (context.dryRun)
+        return planDownload(context, Executable.Go, "go.dev", DownloadFormat.TarGz);
       const version = (await downloadText("https://go.dev/VERSION?m=text")).split("\n")[0]?.trim();
       if (!version) throw new Error("go.dev did not return a version");
       const response = await fetch(`https://go.dev/dl/${version}.linux-${context.arch.deb}.tar.gz`);
@@ -456,12 +539,26 @@ function goReleaseTask(context: PackageContext): Task {
       const archive = join(directory, "go.tgz");
       try {
         await Bun.write(archive, response);
-        await runChecked(context.runner, sudo(["rm", "-rf", "/usr/local/go"]), {
-          env: context.env,
-        });
-        await runChecked(context.runner, sudo(["tar", "-C", "/usr/local", "-xzf", archive]), {
-          env: context.env,
-        });
+        await runChecked(
+          context.runner,
+          sudo([Executable.Remove, RemoveFlag.RecursiveForce, SystemPath.GoRoot]),
+          {
+            env: context.env,
+          },
+        );
+        await runChecked(
+          context.runner,
+          sudo([
+            Executable.Tar,
+            ArchiveFlag.Directory,
+            SystemPath.LocalPrefix,
+            ArchiveFlag.ExtractGzip,
+            archive,
+          ]),
+          {
+            env: context.env,
+          },
+        );
       } finally {
         await rm(directory, { recursive: true, force: true });
       }
@@ -472,39 +569,61 @@ function goReleaseTask(context: PackageContext): Task {
 async function installVendors(context: PackageContext, skipped: string[]) {
   const serial: Task[] = [];
   const parallel: Task[] = [];
-  if (context.os === "linux" && missing(context, "tailscale", skipped)) {
+  if (context.os === OperatingSystem.Linux && missing(context, Executable.Tailscale, skipped)) {
     // This installer invokes the native package manager internally, so isolate it
     // from every other installer to avoid apt/dnf/pacman lock contention.
     serial.push(
-      scriptInstaller(context, "tailscale", "https://tailscale.com/install.sh", ["sh", "-s"]),
+      scriptInstaller(context, Executable.Tailscale, "https://tailscale.com/install.sh", [
+        Executable.Sh,
+        ShellFlag.Stdin,
+      ]),
     );
   }
-  if (missing(context, "claude", skipped))
+  if (missing(context, Executable.Claude, skipped))
     parallel.push(
-      scriptInstaller(context, "claude", "https://claude.ai/install.sh", ["bash", "-s"]),
+      scriptInstaller(context, Executable.Claude, "https://claude.ai/install.sh", [
+        Executable.Bash,
+        ShellFlag.Stdin,
+      ]),
     );
-  if (missing(context, "codex", skipped))
+  if (missing(context, Executable.Codex, skipped))
     parallel.push(
-      scriptInstaller(context, "codex", "https://chatgpt.com/codex/install.sh", ["sh", "-s"]),
+      scriptInstaller(context, Executable.Codex, "https://chatgpt.com/codex/install.sh", [
+        Executable.Sh,
+        ShellFlag.Stdin,
+      ]),
     );
-  if (missing(context, "opencode", skipped))
+  if (missing(context, Executable.Opencode, skipped))
     parallel.push(
-      scriptInstaller(context, "opencode", "https://opencode.ai/install", ["bash", "-s"]),
+      scriptInstaller(context, Executable.Opencode, "https://opencode.ai/install", [
+        Executable.Bash,
+        ShellFlag.Stdin,
+      ]),
     );
-  if (missing(context, "herdr", skipped))
-    parallel.push(scriptInstaller(context, "herdr", "https://herdr.dev/install.sh", ["sh", "-s"]));
-  if (missing(context, "uv", skipped))
-    parallel.push(scriptInstaller(context, "uv", "https://astral.sh/uv/install.sh", ["sh", "-s"]));
-  if (missing(context, "cargo", skipped)) {
+  if (missing(context, Executable.Herdr, skipped))
+    parallel.push(
+      scriptInstaller(context, Executable.Herdr, "https://herdr.dev/install.sh", [
+        Executable.Sh,
+        ShellFlag.Stdin,
+      ]),
+    );
+  if (missing(context, Executable.Uv, skipped))
+    parallel.push(
+      scriptInstaller(context, Executable.Uv, "https://astral.sh/uv/install.sh", [
+        Executable.Sh,
+        ShellFlag.Stdin,
+      ]),
+    );
+  if (missing(context, Executable.Cargo, skipped)) {
     parallel.push(
       scriptInstaller(context, "rustup", "https://sh.rustup.rs", [
-        "sh",
-        "-s",
-        "--",
-        "-y",
-        "--no-modify-path",
-        "--profile",
-        "minimal",
+        Executable.Sh,
+        ShellFlag.Stdin,
+        RustupArgument.Separator,
+        PackageFlag.Yes,
+        RustupArgument.NoModifyPath,
+        RustupArgument.Profile,
+        RustupArgument.MinimalProfile,
       ]),
     );
   }
@@ -535,8 +654,13 @@ function scriptInstaller(
 
 async function installLanguageTools(context: PackageContext, skipped: string[]) {
   const groups: Task[] = [];
-  const cargoCrates = ["zoxide", "starship", "just", "worktrunk"].filter((tool) =>
-    missing(context, tool === "worktrunk" ? "wt" : tool, skipped),
+  const cargoCrates = [
+    PackageName.Zoxide,
+    PackageName.Starship,
+    PackageName.Just,
+    PackageName.Worktrunk,
+  ].filter((tool) =>
+    missing(context, tool === PackageName.Worktrunk ? Executable.WorktrunkCommand : tool, skipped),
   );
   if (cargoCrates.length > 0) {
     groups.push({
@@ -544,29 +668,42 @@ async function installLanguageTools(context: PackageContext, skipped: string[]) 
       run: async () => {
         if (
           !context.dryRun &&
-          !context.exists("cargo") &&
+          !context.exists(Executable.Cargo) &&
           !existsSync(join(context.home, ".cargo/bin/cargo"))
         ) {
           throw new Error("cargo unavailable after rustup");
         }
         for (const crate of cargoCrates)
-          await commandTask(context, crate, ["cargo", "install", crate, "--locked"]);
+          await commandTask(context, crate, [
+            Executable.Cargo,
+            CommandVerb.Install,
+            crate,
+            PackageFlag.Locked,
+          ]);
       },
     });
   }
 
   const goModules: Array<[string, string]> = [
-    ["gopls", "golang.org/x/tools/gopls"],
-    ["speedtest", "github.com/showwin/speedtest-go"],
+    [Executable.Gopls, "golang.org/x/tools/gopls"],
+    [Executable.Speedtest, "github.com/showwin/speedtest-go"],
   ].filter(([tool]) => missing(context, tool, skipped)) as Array<[string, string]>;
   if (goModules.length > 0) {
     groups.push({
       name: "go tools",
       run: async () => {
-        if (!context.dryRun && !context.exists("go") && !existsSync("/usr/local/go/bin/go"))
+        if (
+          !context.dryRun &&
+          !context.exists(Executable.Go) &&
+          !existsSync(SystemPath.GoExecutable)
+        )
           throw new Error("go unavailable");
         for (const [tool, module] of goModules)
-          await commandTask(context, tool, ["go", "install", `${module}@latest`]);
+          await commandTask(context, tool, [
+            Executable.Go,
+            CommandVerb.Install,
+            `${module}@latest`,
+          ]);
         const speedtestGo = join(context.home, "go/bin/speedtest-go");
         const speedtest = join(context.home, ".local/bin/speedtest");
         if (!context.dryRun && existsSync(speedtestGo)) {
@@ -578,19 +715,25 @@ async function installLanguageTools(context: PackageContext, skipped: string[]) 
   }
 
   const missingBunPackages: Array<[string, string]> = [
-    ["pi", "@earendil-works/pi-coding-agent"],
-    ["bash-language-server", "bash-language-server"],
-    ["typescript-language-server", "typescript-language-server"],
-    ["yaml-language-server", "yaml-language-server"],
-    ["vscode-json-language-server", "vscode-langservers-extracted"],
+    [Executable.Pi, PackageName.PiCodingAgent],
+    [Executable.BashLanguageServer, Executable.BashLanguageServer],
+    [Executable.TypeScriptLanguageServer, Executable.TypeScriptLanguageServer],
+    [Executable.YamlLanguageServer, Executable.YamlLanguageServer],
+    [Executable.JsonLanguageServer, PackageName.VsCodeLanguageServers],
   ].filter(([tool]) => missing(context, tool, skipped)) as Array<[string, string]>;
   const bunPackages = missingBunPackages.map(([, packageName]) => packageName);
   if (bunPackages.length > 0) {
     groups.push({
-      name: "bun globals",
+      name: PackageTaskName.BunGlobals,
       run: async () => {
-        await commandTask(context, "bun globals", ["bun", "install", "-g", ...bunPackages]);
-        if (!context.dryRun && !context.exists("node")) await wrapNodeShebangs(context.home);
+        await commandTask(context, PackageTaskName.BunGlobals, [
+          Executable.Bun,
+          CommandVerb.Install,
+          PackageFlag.Global,
+          ...bunPackages,
+        ]);
+        if (!context.dryRun && !context.exists(Executable.Node))
+          await wrapNodeShebangs(context.home);
       },
     });
   }
@@ -598,8 +741,8 @@ async function installLanguageTools(context: PackageContext, skipped: string[]) 
 }
 
 async function wrapNodeShebangs(home: string): Promise<void> {
-  const bin = join(home, ".bun/bin");
-  const glob = new Bun.Glob("*");
+  const bin = join(home, UserPath.BunBin);
+  const glob = new Bun.Glob(FilePattern.Any);
   for await (const entry of glob.scan({ cwd: bin, dot: true, onlyFiles: false })) {
     const link = join(bin, entry);
     let target: string;
@@ -654,7 +797,12 @@ async function downloadText(url: string): Promise<string> {
   return response.text();
 }
 
-function planDownload(context: PackageContext, name: string, repo: string, kind: string): void {
+function planDownload(
+  context: PackageContext,
+  name: string,
+  repo: string,
+  kind: DownloadFormat,
+): void {
   context.planned.push(`${name}: download ${kind} from ${repo}`);
 }
 

@@ -1,3 +1,4 @@
+import { PackageTaskName } from "../../lib/tokens";
 import type { Command } from "../../lib/process";
 import type { Architecture, PackageContext, Platform } from "../types";
 
@@ -16,25 +17,48 @@ export interface Release {
   version: string;
 }
 
+export enum ReleaseKind {
+  Deb = "deb",
+  RpmBottom = "rpm-bottom",
+  Tar = "tar",
+  Binary = "binary",
+  Helix = "helix",
+  Go = "go",
+}
+
+export enum ReleasePhase {
+  Serial = "serial",
+  Parallel = "parallel",
+}
+
+export enum PlatformPreparation {
+  Homebrew = PackageTaskName.Homebrew,
+}
+
 interface ReleaseBase {
   test: string;
   name: string;
-  phase: "serial" | "parallel";
+  phase: ReleasePhase;
 }
 
 type AssetSelector = (release: Release, arch: Architecture) => string;
 
 export type PlatformRelease = ReleaseBase &
   (
-    | { kind: "deb"; repo: string; asset: AssetSelector }
-    | { kind: "rpm-bottom" }
-    | { kind: "tar" | "binary"; repo: string; asset: AssetSelector; binary: string }
-    | { kind: "helix" | "go" }
+    | { kind: ReleaseKind.Deb; repo: string; asset: AssetSelector }
+    | { kind: ReleaseKind.RpmBottom }
+    | {
+        kind: ReleaseKind.Tar | ReleaseKind.Binary;
+        repo: string;
+        asset: AssetSelector;
+        binary: string;
+      }
+    | { kind: ReleaseKind.Helix | ReleaseKind.Go }
   );
 
 export interface PlatformInstaller {
   platform: Platform;
-  prepare?: "homebrew";
+  prepare?: PlatformPreparation;
   native: NativePackage[];
   nativeCommands(
     packages: string[],
