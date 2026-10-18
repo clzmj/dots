@@ -124,6 +124,13 @@ its completion state. The portable tool PATH lives in `~/.zshenv`, so the same
 user install locations work in interactive sessions and one-shot SSH commands
 on macOS and Linux. `tree` is a shell alias over the shared `eza` package.
 
+## Codex theme
+
+The custom [Vesper theme](home/.codex/themes/vesper.tmTheme) uses the same palette
+as Helix and Ghostty. Setup installs it under `~/.codex/themes/`; select Vesper
+with `/theme` in Codex, or set `theme = "vesper"` in your local config's `[tui]`
+section. To keep the theme linked to this checkout, use the symlink install mode.
+
 ## Local-only data
 
 The repository contains no keys or credentials. Machine-specific shell config
