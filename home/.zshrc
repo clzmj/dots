@@ -42,3 +42,7 @@ setopt HIST_IGNORE_ALL_DUPS HIST_REDUCE_BLANKS SHARE_HISTORY EXTENDED_HISTORY
 
 # Ctrl-C leaves the cursor visible
 TRAPINT() { printf '\033[?25h'; return $(( 128 + $1 )); }
+
+# >>> railway initialize >>>
+source "$HOME/.railway/env"
+# <<< railway initialize <<<
