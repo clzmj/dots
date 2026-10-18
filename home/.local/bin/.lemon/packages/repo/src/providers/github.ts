@@ -1,8 +1,9 @@
+import { ProviderName } from "../remote.ts";
 import type { ForgeProvider } from "./types.ts";
 import { encodePath } from "./types.ts";
 
 export const github: ForgeProvider = {
-  name: "github",
+  name: ProviderName.GitHub,
   commit: (base, sha) => `${base}/commit/${encodeURIComponent(sha)}`,
   resource(base, target) {
     const path = encodePath(target.path);

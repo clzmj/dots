@@ -1,3 +1,5 @@
+import { FzfOption } from "./tokens.ts";
+import { ProcessIO, Executable } from "../../../shared/tokens.ts";
 export interface ActionAdapters {
   readonly open: (target: string) => Promise<number>;
   readonly copy: (text: string) => Promise<number>;
@@ -13,11 +15,14 @@ async function copy(text: string): Promise<number> {
 }
 
 async function choose(choices: readonly string[], prompt: string): Promise<string | undefined> {
-  const child = Bun.spawn(["fzf", `--prompt=${prompt}`, "--height=40%", "--border"], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "inherit",
-  });
+  const child = Bun.spawn(
+    [Executable.Fzf, `${FzfOption.Prompt}=${prompt}`, `${FzfOption.Height}=40%`, FzfOption.Border],
+    {
+      stdin: ProcessIO.Pipe,
+      stdout: ProcessIO.Pipe,
+      stderr: ProcessIO.Inherit,
+    },
+  );
   child.stdin.write(`${choices.join("\n")}\n`);
   child.stdin.end();
   const output = (await new Response(child.stdout).text()).trim();

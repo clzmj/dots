@@ -8,4 +8,37 @@ export { collectOS, parseOSRelease } from "./collectors/os";
 export { createProbeContext } from "./context";
 export { renderJSON } from "./renderers/json";
 export { barGraph, renderTable } from "./renderers/table";
-export type { CommandResult, MachineReport, Platform, ProbeContext } from "./types";
+export {
+  CliAction,
+  OutputFormat,
+  Platform,
+  type CommandResult,
+  type MachineReport,
+  type ProbeContext,
+} from "./types";
+
+export {
+  DisplayValue,
+  OSName,
+  SystemCommand,
+  HostnameOption,
+  WhoArgument,
+  IPArgument,
+  UnameOption,
+  NprocOption,
+  UptimeOption,
+  DiskOption,
+  LastOption,
+  LastlogOption,
+  SysctlOption,
+  SwVersOption,
+  ScutilOption,
+  SystemPath,
+  InfoEnvironment,
+  SysctlKey,
+  VMStatField,
+  MemInfoField,
+  OSReleaseField,
+  NetworkAddress,
+  ProbeValue,
+} from "./tokens";

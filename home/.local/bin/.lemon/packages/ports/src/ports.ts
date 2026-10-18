@@ -1,3 +1,5 @@
+import { LsofOption, LsofField, PsOption, PsField, ProcessErrorCode } from "./tokens.ts";
+import { ProcessIO, Executable } from "../../../shared/tokens.ts";
 import { basename } from "node:path";
 
 export interface CommandResult {
@@ -6,7 +8,18 @@ export interface CommandResult {
   stderr: string;
 }
 
-export type ProcessSignal = 0 | "SIGTERM" | "SIGKILL";
+export enum ProcessSignal {
+  Probe = 0,
+  Terminate = "SIGTERM",
+  Kill = "SIGKILL",
+}
+
+export enum SelectionCommand {
+  All = "all",
+  AllShort = "a",
+  Quit = "quit",
+  QuitShort = "q",
+}
 
 export interface SystemAdapter {
   which(command: string): string | null;
@@ -56,7 +69,7 @@ const DEV_NAMES = new Set([
   "npm",
   "yarn",
   "pnpm",
-  "bun",
+  Executable.Bun,
   "deno",
   "cargo",
   "ruby",
@@ -83,7 +96,7 @@ const DEV_PATTERNS = [
 export const defaultSystem: SystemAdapter = {
   which: (command) => Bun.which(command),
   async run(command) {
-    const child = Bun.spawn([...command], { stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn([...command], { stdout: ProcessIO.Pipe, stderr: ProcessIO.Pipe });
     const [stdout, stderr, exitCode] = await Promise.all([
       new Response(child.stdout).text(),
       new Response(child.stderr).text(),
@@ -96,7 +109,7 @@ export const defaultSystem: SystemAdapter = {
       process.kill(pid, signal);
       return true;
     } catch (error) {
-      if (isErrno(error, "ESRCH")) return false;
+      if (isErrno(error, ProcessErrorCode.NoSuchProcess)) return false;
       throw error;
     }
   },
@@ -112,7 +125,7 @@ export function parseLsof(output: string): Array<Omit<Server, "command">> {
     if (!raw) continue;
     const field = raw[0];
     const value = raw.slice(1);
-    if (field === "p") {
+    if (field === LsofField.Pid) {
       const pid = Number(value);
       if (!Number.isSafeInteger(pid) || pid <= 0) {
         current = undefined;
@@ -123,11 +136,11 @@ export function parseLsof(output: string): Array<Omit<Server, "command">> {
       continue;
     }
     if (!current) continue;
-    if (field === "c") {
+    if (field === LsofField.Command) {
       current.name = value;
       continue;
     }
-    if (field === "n") {
+    if (field === LsofField.Name) {
       const match = value.match(/:(\d+)(?:\s|$|\(LISTEN\))/);
       const port = match?.[1] === undefined ? Number.NaN : Number(match[1]);
       if (Number.isInteger(port) && port >= 1 && port <= 65_535) current.ports.add(port);
@@ -155,7 +168,7 @@ export function isDevelopmentServer(name: string, command: string): boolean {
 
 export function parseSelection(value: string, count: number): number[] {
   const input = value.trim().toLowerCase();
-  if (input === "all" || input === "a") {
+  if (input === SelectionCommand.All || input === SelectionCommand.AllShort) {
     return Array.from({ length: count }, (_, index) => index);
   }
   if (!input) throw new Error("empty selection");
@@ -185,11 +198,17 @@ export async function discoverServers(
   system: SystemAdapter = defaultSystem,
   includeAll = false,
 ): Promise<Server[]> {
-  if (system.which("lsof") === null) {
+  if (system.which(Executable.Lsof) === null) {
     throw new Error("lsof is required (brew install lsof / apt install lsof)");
   }
 
-  const result = await system.run(["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]);
+  const result = await system.run([
+    Executable.Lsof,
+    LsofOption.Numeric,
+    LsofOption.Tcp,
+    LsofOption.Listening,
+    LsofOption.Fields,
+  ]);
   if (result.exitCode !== 0) {
     // lsof commonly returns 1 when a selection has no matches. An empty result
     // with no diagnostic is therefore a valid "nothing is listening" result.
@@ -201,7 +220,13 @@ export async function discoverServers(
   const inspected = await Promise.all(
     parseLsof(result.stdout).map(async (listener): Promise<Server | undefined> => {
       if (listener.ports.length === 0) return undefined;
-      const processResult = await system.run(["ps", "-p", String(listener.pid), "-o", "command="]);
+      const processResult = await system.run([
+        Executable.Ps,
+        PsOption.Pid,
+        String(listener.pid),
+        PsOption.Output,
+        PsField.Command,
+      ]);
       if (processResult.exitCode !== 0) return undefined;
       return { ...listener, command: processResult.stdout.trim() };
     }),
@@ -245,7 +270,7 @@ export async function stopServers(
       continue;
     }
     try {
-      if (!system.signal(target.pid, "SIGTERM")) result.stale.push(target.pid);
+      if (!system.signal(target.pid, ProcessSignal.Terminate)) result.stale.push(target.pid);
       else signaled.push(target);
     } catch (error) {
       result.failed.push({ pid: target.pid, error: errorMessage(error) });
@@ -274,7 +299,7 @@ export async function stopServers(
   await Promise.all(
     survivors.map(async (target) => {
       try {
-        if (!system.signal(target.pid, "SIGKILL")) {
+        if (!system.signal(target.pid, ProcessSignal.Kill)) {
           result.terminated.push(target.pid);
           return;
         }
@@ -333,10 +358,10 @@ async function waitForExit(
 ): Promise<boolean> {
   const deadline = system.now() + timeoutMs;
   while (system.now() < deadline) {
-    if (!system.signal(pid, 0)) return true;
+    if (!system.signal(pid, ProcessSignal.Probe)) return true;
     await system.sleep(Math.min(100, Math.max(0, deadline - system.now())));
   }
-  return !system.signal(pid, 0);
+  return !system.signal(pid, ProcessSignal.Probe);
 }
 
 function sortedResult(result: StopResult): StopResult {

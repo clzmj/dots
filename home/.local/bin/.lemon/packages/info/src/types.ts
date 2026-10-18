@@ -1,4 +1,19 @@
-export type Platform = "darwin" | "linux" | "other";
+export enum Platform {
+  Darwin = "darwin",
+  Linux = "linux",
+  Other = "other",
+}
+
+export enum OutputFormat {
+  Table = "table",
+  JSON = "json",
+}
+
+export enum CliAction {
+  Run = "run",
+  Help = "help",
+  Version = "version",
+}
 
 export interface CommandResult {
   stdout: string;

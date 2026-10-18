@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import pkg from "../package.json";
-import { help, main } from "../../lemon";
+import { CommandName, help, main } from "../../lemon";
+import { CliOption } from "../shared/tokens";
 
 function capture() {
   const out: string[] = [];
@@ -17,7 +18,7 @@ describe("lemon dispatcher", () => {
   test("shows the complete command surface", async () => {
     const result = capture();
     expect(await main([], result.io)).toBe(0);
-    for (const command of ["repo", "ports", "notify", "info"]) {
+    for (const command of Object.values(CommandName)) {
       expect(result.out.join("\n")).toContain(command);
     }
     for (const command of ["open", "clip", "run", "tree"]) {
@@ -28,7 +29,7 @@ describe("lemon dispatcher", () => {
 
   test("shows the binary version", async () => {
     const result = capture();
-    expect(await main(["--version"], result.io)).toBe(0);
+    expect(await main([CliOption.Version], result.io)).toBe(0);
     expect(result.out).toEqual([pkg.version]);
   });
 

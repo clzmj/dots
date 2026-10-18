@@ -2,6 +2,9 @@ import { describe, expect, test } from "bun:test";
 
 import {
   OpenBackendError,
+  OpenBackendName,
+  OpenEnvironment,
+  SupportedPlatform,
   openTargets,
   resolveOpenBackend,
   type SpawnedProcess,
@@ -11,46 +14,46 @@ const none = () => null;
 
 describe("resolveOpenBackend", () => {
   test("uses the native macOS opener without PATH recursion", () => {
-    expect(resolveOpenBackend({ platform: "darwin", executable: () => true }).command).toEqual([
-      "/usr/bin/open",
-    ]);
-    expect(() => resolveOpenBackend({ platform: "darwin", executable: () => false })).toThrow(
-      OpenBackendError,
-    );
+    expect(
+      resolveOpenBackend({ platform: SupportedPlatform.Darwin, executable: () => true }).command,
+    ).toEqual(["/usr/bin/open"]);
+    expect(() =>
+      resolveOpenBackend({ platform: SupportedPlatform.Darwin, executable: () => false }),
+    ).toThrow(OpenBackendError);
   });
 
   test("prefers wslview under WSL", () => {
     const backend = resolveOpenBackend({
-      platform: "linux",
-      env: { WSL_DISTRO_NAME: "Ubuntu" },
-      which: (name) => (name === "wslview" ? "/usr/bin/wslview" : null),
+      platform: SupportedPlatform.Linux,
+      env: { [OpenEnvironment.WslDistroName]: "Ubuntu" },
+      which: (name) => (name === OpenBackendName.Wslview ? "/usr/bin/wslview" : null),
     });
-    expect(backend).toEqual({ name: "wslview", command: ["/usr/bin/wslview"] });
+    expect(backend).toEqual({ name: OpenBackendName.Wslview, command: ["/usr/bin/wslview"] });
   });
 
   test("uses xdg-open then gio on Linux", () => {
     expect(
       resolveOpenBackend({
-        platform: "linux",
+        platform: SupportedPlatform.Linux,
         env: {},
-        which: (name) => (name === "xdg-open" ? "/usr/bin/xdg-open" : null),
+        which: (name) => (name === OpenBackendName.XdgOpen ? "/usr/bin/xdg-open" : null),
       }).name,
-    ).toBe("xdg-open");
+    ).toBe(OpenBackendName.XdgOpen);
     expect(
       resolveOpenBackend({
-        platform: "linux",
+        platform: SupportedPlatform.Linux,
         env: {},
-        which: (name) => (name === "gio" ? "/usr/bin/gio" : null),
+        which: (name) => (name === OpenBackendName.Gio ? "/usr/bin/gio" : null),
       }).command,
     ).toEqual(["/usr/bin/gio", "open"]);
-    expect(() => resolveOpenBackend({ platform: "linux", env: {}, which: none })).toThrow(
-      "no opener found",
-    );
+    expect(() =>
+      resolveOpenBackend({ platform: SupportedPlatform.Linux, env: {}, which: none }),
+    ).toThrow("no opener found");
   });
 
   test("uses an argv-safe Windows executable rather than cmd.exe", () => {
-    expect(resolveOpenBackend({ platform: "win32", which: none })).toEqual({
-      name: "explorer",
+    expect(resolveOpenBackend({ platform: SupportedPlatform.Windows, which: none })).toEqual({
+      name: OpenBackendName.Explorer,
       command: ["explorer.exe"],
     });
   });
@@ -71,9 +74,9 @@ describe("openTargets", () => {
     };
     expect(
       await openTargets(["a file.txt", "https://example.test/?q=$(false)"], {
-        platform: "linux",
+        platform: SupportedPlatform.Linux,
         env: {},
-        which: (name) => (name === "xdg-open" ? "/mock/xdg-open" : null),
+        which: (name) => (name === OpenBackendName.XdgOpen ? "/mock/xdg-open" : null),
         spawn,
       }),
     ).toBe(0);
@@ -87,9 +90,9 @@ describe("openTargets", () => {
     const statuses = [0, 19, 0];
     let calls = 0;
     const status = await openTargets(["one", "two", "three"], {
-      platform: "linux",
+      platform: SupportedPlatform.Linux,
       env: {},
-      which: (name) => (name === "xdg-open" ? name : null),
+      which: (name) => (name === OpenBackendName.XdgOpen ? name : null),
       spawn: () => ({ exited: Promise.resolve(statuses[calls++] ?? 0) }),
     });
     expect(status).toBe(19);

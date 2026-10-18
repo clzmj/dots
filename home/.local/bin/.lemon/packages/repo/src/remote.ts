@@ -1,4 +1,20 @@
-export type ProviderName = "github" | "gitlab";
+export enum ProviderName {
+  GitHub = "github",
+  GitLab = "gitlab",
+}
+
+enum RemoteProtocol {
+  Http = "http:",
+  Https = "https:",
+  Ssh = "ssh:",
+  Git = "git:",
+}
+
+export function parseProviderName(value: string): ProviderName {
+  const name = Object.values(ProviderName).find((candidate) => candidate === value);
+  if (name === undefined) throw new Error("--provider must be github or gitlab");
+  return name;
+}
 
 function cleanPath(pathname: string): string {
   return pathname.replace(/\/+$/, "").replace(/\.git$/, "");
@@ -15,7 +31,7 @@ export function normalizeRemote(remote: string): string {
   } catch {
     throw new Error(`unsupported remote URL: ${value}`);
   }
-  if (!["http:", "https:", "ssh:", "git:"].includes(parsed.protocol))
+  if (!Object.values(RemoteProtocol).some((protocol) => protocol === parsed.protocol))
     throw new Error(`unsupported remote protocol: ${parsed.protocol}`);
   const host = parsed.host;
   const path = cleanPath(parsed.pathname);
@@ -25,7 +41,9 @@ export function normalizeRemote(remote: string): string {
 export function detectProvider(base: string, override?: ProviderName): ProviderName {
   if (override) return override;
   const hostname = new URL(base).hostname.toLowerCase();
-  if (hostname === "github.com" || hostname.includes("github")) return "github";
-  if (hostname === "gitlab.com" || hostname.includes("gitlab")) return "gitlab";
+  if (hostname === "github.com" || hostname.includes(ProviderName.GitHub))
+    return ProviderName.GitHub;
+  if (hostname === "gitlab.com" || hostname.includes(ProviderName.GitLab))
+    return ProviderName.GitLab;
   throw new Error(`unknown forge host: ${hostname}; use --provider github|gitlab`);
 }

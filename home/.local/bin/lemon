@@ -4,6 +4,7 @@ import { runInfo } from "./.lemon/packages/info/src/cli";
 import { runPorts } from "./.lemon/packages/ports/src/cli";
 import { runRepo } from "./.lemon/packages/repo/src/cli";
 import { runNotify } from "./.lemon/packages/run/src/cli";
+import { CliOption } from "./.lemon/shared/tokens";
 
 import pkg from "./.lemon/package.json";
 
@@ -12,14 +13,28 @@ export interface CliIO {
   readonly error: (message: string) => void;
 }
 
-export const commands = {
-  info: { summary: "Show a portable machine report", run: runInfo },
-  repo: { summary: "Open, print, or copy Git repository links", run: runRepo },
-  ports: { summary: "List and stop local development servers", run: runPorts },
-  notify: { summary: "Run a command and notify when it finishes", run: runNotify },
-} as const;
+export enum CommandName {
+  Info = "info",
+  Repo = "repo",
+  Ports = "ports",
+  Notify = "notify",
+}
 
-export type CommandName = keyof typeof commands;
+enum MetaCommand {
+  Help = "help",
+}
+
+export const commands = {
+  [CommandName.Info]: { summary: "Show a portable machine report", run: runInfo },
+  [CommandName.Repo]: { summary: "Open, print, or copy Git repository links", run: runRepo },
+  [CommandName.Ports]: { summary: "List and stop local development servers", run: runPorts },
+  [CommandName.Notify]: { summary: "Run a command and notify when it finishes", run: runNotify },
+} as const satisfies Record<CommandName, { summary: string; run: typeof runInfo }>;
+
+function commandNamed(value: string) {
+  const name = Object.values(CommandName).find((candidate) => candidate === value);
+  return name === undefined ? undefined : commands[name];
+}
 
 export function help(): string {
   const width = Math.max(...Object.keys(commands).map((name) => name.length));
@@ -47,28 +62,28 @@ export async function main(
   io: CliIO = { out: console.log, error: console.error },
 ): Promise<number> {
   const [first, ...rest] = args;
-  if (!first || first === "--help" || first === "-h") {
+  if (!first || first === CliOption.Help || first === CliOption.HelpShort) {
     io.out(help());
     return 0;
   }
-  if (first === "--version" || first === "-v") {
+  if (first === CliOption.Version || first === CliOption.VersionShort) {
     io.out(pkg.version);
     return 0;
   }
-  if (first === "help") {
+  if (first === MetaCommand.Help) {
     const name = rest[0];
     if (!name) {
       io.out(help());
       return 0;
     }
-    const command = commands[name as CommandName];
+    const command = commandNamed(name);
     if (!command) {
       io.error(`lemon: unknown command: ${name}`);
       return 2;
     }
-    return command.run(["--help"]);
+    return command.run([CliOption.Help]);
   }
-  const command = commands[first as CommandName];
+  const command = commandNamed(first);
   if (!command) {
     io.error(`lemon: unknown command: ${first}`);
     io.error("Run 'lemon --help' for usage.");

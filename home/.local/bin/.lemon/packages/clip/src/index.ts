@@ -1,6 +1,16 @@
-import { type Backend, defaultRuntime, resolveCommand, type Runtime } from "./backend";
+import { ProcessIO } from "../../../shared/tokens";
+import { type Backend, defaultRuntime, Operation, resolveCommand, type Runtime } from "./backend";
 
-export type { Backend, Operation, Runtime } from "./backend";
+export {
+  Backend,
+  ClipboardCommand,
+  ClipboardEnvironment,
+  ClipboardSelection,
+  Operation,
+  XclipOption,
+  type Runtime,
+} from "./backend";
+export { CliAction } from "./process";
 
 export interface CopyTextOptions {
   backend?: Backend;
@@ -13,11 +23,15 @@ export async function copyText(
   text: string | Uint8Array,
   options: CopyTextOptions = {},
 ): Promise<number> {
-  const command = resolveCommand("copy", options.backend, options.runtime ?? defaultRuntime());
+  const command = resolveCommand(
+    Operation.Copy,
+    options.backend,
+    options.runtime ?? defaultRuntime(),
+  );
   const child = Bun.spawn([...command, ...(options.backendArgs ?? [])], {
-    stdin: "pipe",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdin: ProcessIO.Pipe,
+    stdout: ProcessIO.Inherit,
+    stderr: ProcessIO.Inherit,
   });
   child.stdin.write(text);
   child.stdin.end();

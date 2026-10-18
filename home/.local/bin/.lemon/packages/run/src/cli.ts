@@ -1,10 +1,12 @@
+import { CliOption, DurationUnit } from "../../../shared/tokens.ts";
 import pkg from "../package.json";
 import {
   defaultRuntime,
   runAndNotify,
   terminalNotifier,
   type CommandRuntime,
-  type NotificationCondition,
+  NotificationCondition,
+  parseNotificationCondition,
   type Notifier,
 } from "./runner";
 
@@ -28,11 +30,17 @@ Commands run directly, without a shell. Use 'sh -lc' explicitly when shell
 syntax such as pipes, redirects, or glob expansion is required.
 `;
 
+export enum ActionKind {
+  Help = "help",
+  Version = "version",
+  Run = "run",
+}
+
 type Action =
-  | { kind: "help" }
-  | { kind: "version" }
+  | { kind: ActionKind.Help }
+  | { kind: ActionKind.Version }
   | {
-      kind: "run";
+      kind: ActionKind.Run;
       command: string[];
       condition: NotificationCondition;
       afterMs: number;
@@ -49,10 +57,12 @@ export interface CliDependencies {
 
 export function parseCli(args: readonly string[]): Action {
   if (args.length === 0) throw new Error("a command is required");
-  if (args[0] === "--help" || args[0] === "-h") return { kind: "help" };
-  if (args[0] === "--version" || args[0] === "-v") return { kind: "version" };
+  if (args[0] === CliOption.Help || args[0] === CliOption.HelpShort)
+    return { kind: ActionKind.Help };
+  if (args[0] === CliOption.Version || args[0] === CliOption.VersionShort)
+    return { kind: ActionKind.Version };
 
-  let condition: NotificationCondition = "always";
+  let condition = NotificationCondition.Always;
   let afterMs = 0;
   let title: string | undefined;
   let alwaysZero = false;
@@ -60,33 +70,30 @@ export function parseCli(args: readonly string[]): Action {
 
   while (index < args.length) {
     const argument = args[index];
-    if (argument === "--") {
+    if (argument === CliOption.Separator) {
       index += 1;
       break;
     }
-    if (argument === "--on") {
+    if (argument === CliOption.On) {
       const value = args[index + 1];
-      if (value !== "always" && value !== "success" && value !== "failure") {
-        throw new Error("--on requires always, success, or failure");
-      }
-      condition = value;
+      condition = parseNotificationCondition(value);
       index += 2;
       continue;
     }
-    if (argument === "--after") {
+    if (argument === CliOption.After) {
       const value = args[index + 1];
       if (value === undefined) throw new Error("--after requires a duration");
       afterMs = parseDuration(value);
       index += 2;
       continue;
     }
-    if (argument === "--title") {
+    if (argument === CliOption.Title) {
       title = args[index + 1];
       if (title === undefined) throw new Error("--title requires text");
       index += 2;
       continue;
     }
-    if (argument === "--always-zero") {
+    if (argument === CliOption.AlwaysZero) {
       alwaysZero = true;
       index += 1;
       continue;
@@ -97,7 +104,7 @@ export function parseCli(args: readonly string[]): Action {
 
   const command = args.slice(index);
   if (command.length === 0) throw new Error("a command is required");
-  return { kind: "run", command: [...command], condition, afterMs, title, alwaysZero };
+  return { kind: ActionKind.Run, command: [...command], condition, afterMs, title, alwaysZero };
 }
 
 export function parseDuration(value: string): number {
@@ -105,7 +112,13 @@ export function parseDuration(value: string): number {
   if (!match?.[1]) throw new Error(`invalid duration: ${value}`);
   const amount = Number(match[1]);
   const multiplier =
-    match[2] === "s" ? 1_000 : match[2] === "m" ? 60_000 : match[2] === "h" ? 3_600_000 : 1;
+    match[2] === DurationUnit.Second
+      ? 1_000
+      : match[2] === DurationUnit.Minute
+        ? 60_000
+        : match[2] === DurationUnit.Hour
+          ? 3_600_000
+          : 1;
   const milliseconds = amount * multiplier;
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {
     throw new Error(`invalid duration: ${value}`);
@@ -128,11 +141,11 @@ export async function runNotify(
     return 2;
   }
 
-  if (action.kind === "help") {
+  if (action.kind === ActionKind.Help) {
     log(HELP.trimEnd());
     return 0;
   }
-  if (action.kind === "version") {
+  if (action.kind === ActionKind.Version) {
     log(pkg.version);
     return 0;
   }

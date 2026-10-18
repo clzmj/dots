@@ -1,3 +1,5 @@
+import { RepoCommand } from "../src/tokens.ts";
+import { CliOption, ProcessIO, Executable } from "../../../shared/tokens.ts";
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 
@@ -6,9 +8,9 @@ import pkg from "../package.json";
 const cli = join(dirname(import.meta.dir), "src/cli.ts");
 
 async function run(args: readonly string[]) {
-  const child = Bun.spawn(["bun", cli, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const child = Bun.spawn([Executable.Bun, cli, ...args], {
+    stdout: ProcessIO.Pipe,
+    stderr: ProcessIO.Pipe,
   });
   const [stdout, stderr, status] = await Promise.all([
     new Response(child.stdout).text(),
@@ -20,7 +22,7 @@ async function run(args: readonly string[]) {
 
 describe("repo command contracts", () => {
   test("shows top-level and subcommand help", async () => {
-    for (const args of [["--help"], ["blame", "--help"]]) {
+    for (const args of [[CliOption.Help], [RepoCommand.Blame, CliOption.Help]]) {
       const result = await run(args);
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Usage:");
@@ -29,7 +31,7 @@ describe("repo command contracts", () => {
   });
 
   test("prints the module version", async () => {
-    expect(await run(["--version"])).toMatchObject({
+    expect(await run([CliOption.Version])).toMatchObject({
       status: 0,
       stdout: `${pkg.version}\n`,
       stderr: "",

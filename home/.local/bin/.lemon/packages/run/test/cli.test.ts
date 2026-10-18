@@ -1,3 +1,4 @@
+import { CliOption, ProcessIO } from "../../../shared/tokens.ts";
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 
@@ -6,7 +7,10 @@ import pkg from "../package.json";
 const cli = join(import.meta.dir, "../src/cli.ts");
 
 async function invoke(...args: string[]) {
-  const child = Bun.spawn([process.execPath, cli, ...args], { stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, cli, ...args], {
+    stdout: ProcessIO.Pipe,
+    stderr: ProcessIO.Pipe,
+  });
   const [stdout, stderr, status] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
@@ -16,11 +20,11 @@ async function invoke(...args: string[]) {
 }
 
 test("--help and --version are CLI controls", async () => {
-  const help = await invoke("--help");
+  const help = await invoke(CliOption.Help);
   expect(help.status).toBe(0);
   expect(help.stdout).toContain("lemon notify [options] -- <command>");
 
-  const version = await invoke("--version");
+  const version = await invoke(CliOption.Version);
   expect(version.status).toBe(0);
   expect(version.stdout.trim()).toBe(pkg.version);
 });
@@ -38,7 +42,13 @@ test("invocation streams output and preserves failure status", async () => {
 });
 
 test("--always-zero keeps the historical wrapper status", async () => {
-  const result = await invoke("--always-zero", "--", process.execPath, "-e", "process.exit(23)");
+  const result = await invoke(
+    CliOption.AlwaysZero,
+    CliOption.Separator,
+    process.execPath,
+    "-e",
+    "process.exit(23)",
+  );
   expect(result.status).toBe(0);
 });
 

@@ -1,3 +1,20 @@
+import {
+  DiskOption,
+  HostnameOption,
+  IPArgument,
+  InfoEnvironment,
+  LastlogOption,
+  NprocOption,
+  SwVersOption,
+  SysctlKey,
+  SysctlOption,
+  SystemCommand,
+  SystemPath,
+  UnameOption,
+  UptimeOption,
+  WhoArgument,
+} from "../src/tokens";
+import { CliOption, Executable, ProcessIO } from "../../../shared/tokens";
 import { describe, expect, test } from "bun:test";
 
 import { parseArgs } from "../src/cli";
@@ -8,7 +25,14 @@ import { collectOS } from "../src/collectors/os";
 import { createProbeContext } from "../src/context";
 import { renderJSON } from "../src/renderers/json";
 import { barGraph, renderTable } from "../src/renderers/table";
-import type { CommandResult, MachineReport, Platform, ProbeContext } from "../src/types";
+import {
+  CliAction,
+  OutputFormat,
+  Platform,
+  type CommandResult,
+  type MachineReport,
+  type ProbeContext,
+} from "../src/types";
 
 const key = (command: readonly string[]) => command.join("\0");
 
@@ -24,8 +48,8 @@ function fixture(
 ): ProbeContext {
   const commands = options.commands ?? {};
   return {
-    platform: options.platform ?? "linux",
-    env: { USER: "fixture", ...options.env },
+    platform: options.platform ?? Platform.Linux,
+    env: { [InfoEnvironment.User]: "fixture", ...options.env },
     failures: new Set(),
     hasCommand: (command) => (options.available ?? []).includes(command),
     readText: async (path) => options.files?.[path],
@@ -39,36 +63,43 @@ function fixture(
 }
 
 const linuxCommands: Record<string, string> = {
-  [key(["whoami"])]: "ada",
-  [key(["hostname", "-s"])]: "lab",
-  [key(["hostname", "-f"])]: "lab.example.test",
-  [key(["who", "am", "i"])]: "ada pts/1 (203.0.113.8)",
-  [key(["ip", "-o", "addr", "show"])]: "1: lo inet 127.0.0.1/8\n2: eth0 inet 192.0.2.42/24",
-  [key(["uname"])]: "Linux",
-  [key(["uname", "-r"])]: "6.12.1-test",
-  [key(["lscpu"])]:
+  [key([SystemCommand.Whoami])]: "ada",
+  [key([SystemCommand.Hostname, HostnameOption.Short])]: "lab",
+  [key([SystemCommand.Hostname, HostnameOption.FullyQualified])]: "lab.example.test",
+  [key([SystemCommand.Who, WhoArgument.Am, WhoArgument.I])]: "ada pts/1 (203.0.113.8)",
+  [key([SystemCommand.IP, IPArgument.Oneline, IPArgument.Address, IPArgument.Show])]:
+    "1: lo inet 127.0.0.1/8\n2: eth0 inet 192.0.2.42/24",
+  [key([SystemCommand.Uname])]: "Linux",
+  [key([SystemCommand.Uname, UnameOption.Release])]: "6.12.1-test",
+  [key([SystemCommand.Lscpu])]:
     "Model name: Fixture 9000\nCore(s) per socket: 4\nSocket(s): 2\nHypervisor vendor: KVM",
-  [key(["nproc", "--all"])]: "8",
-  [key(["uptime"])]: "load average: 1.50, 0.75, 0.25",
-  [key(["df", "-Pm", "/"])]:
+  [key([SystemCommand.Nproc, NprocOption.All])]: "8",
+  [key([SystemCommand.Uptime])]: "load average: 1.50, 0.75, 0.25",
+  [key([SystemCommand.DiskFree, DiskOption.Megabytes, SystemPath.Root])]:
     "Filesystem 1M-blocks Used Available Capacity Mounted on\n/dev/root 102400 25600 76800 25% /",
-  [key(["lastlog", "-u", "fixture"])]:
+  [key([SystemCommand.Lastlog, LastlogOption.User, "fixture"])]:
     "Username Port From Latest\nfixture pts/1 198.51.100.7 Tue Aug 25 10:30:00 +0000 2026",
-  [key(["uptime", "-p"])]: "up 4 days, 2 hours, 3 minutes",
+  [key([SystemCommand.Uptime, UptimeOption.Pretty])]: "up 4 days, 2 hours, 3 minutes",
 };
 
 const linuxFiles = {
-  "/etc/os-release": 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=quokka\n',
-  "/etc/resolv.conf": "nameserver 1.1.1.1\nnameserver 1.1.1.1\nnameserver 2001:db8::53\n",
-  "/proc/cpuinfo": "processor : 0\nmodel name : Fixture 9000\ncpu MHz : 3200.000",
-  "/proc/meminfo": "MemTotal: 16777216 kB\nMemAvailable: 12582912 kB\n",
+  [SystemPath.OSRelease]: 'ID=ubuntu\nVERSION_ID="26.04"\nVERSION_CODENAME=quokka\n',
+  [SystemPath.ResolvConf]: "nameserver 1.1.1.1\nnameserver 1.1.1.1\nnameserver 2001:db8::53\n",
+  [SystemPath.CPUInfo]: "processor : 0\nmodel name : Fixture 9000\ncpu MHz : 3200.000",
+  [SystemPath.MemInfo]: "MemTotal: 16777216 kB\nMemAvailable: 12582912 kB\n",
 };
 
 test("collects a deterministic Linux report and honors an explicit title", async () => {
   const context = fixture({
     commands: linuxCommands,
     files: linuxFiles,
-    available: ["hostname", "ip", "lscpu", "nproc", "lastlog"],
+    available: [
+      SystemCommand.Hostname,
+      SystemCommand.IP,
+      SystemCommand.Lscpu,
+      SystemCommand.Nproc,
+      SystemCommand.Lastlog,
+    ],
   });
   const report = await collectMachineReport(context, { title: "Fixture" });
   expect(report.title).toBe("Fixture");
@@ -83,23 +114,24 @@ test("collects a deterministic Linux report and honors an explicit title", async
 describe("Darwin collectors", () => {
   test("parse mocked OS, CPU, and memory probes", async () => {
     const commands: Record<string, string> = {
-      [key(["sw_vers", "-productName"])]: "macOS",
-      [key(["sw_vers", "-productVersion"])]: "26.0",
-      [key(["sw_vers", "-buildVersion"])]: "25A123",
-      [key(["uname"])]: "Darwin",
-      [key(["uname", "-r"])]: "25.0.0",
-      [key(["sysctl", "-n", "machdep.cpu.brand_string"])]: "",
-      [key(["sysctl", "-n", "hw.model"])]: "Mac16,1",
-      [key(["sysctl", "-n", "hw.ncpu"])]: "10",
-      [key(["sysctl", "-n", "hw.physicalcpu"])]: "10",
-      [key(["sysctl", "-n", "hw.cpufrequency"])]: "",
-      [key(["sysctl", "-n", "kern.hv_vmm_present"])]: "0",
-      [key(["uptime"])]: "load averages: 0.10 0.20 0.30",
-      [key(["sysctl", "-n", "hw.memsize"])]: "17179869184",
-      [key(["sysctl", "-n", "hw.pagesize"])]: "16384",
-      [key(["vm_stat"])]: "Pages free: 1000.\nPages inactive: 2000.\nPages speculative: 100.",
+      [key([SystemCommand.SwVers, SwVersOption.ProductName])]: "macOS",
+      [key([SystemCommand.SwVers, SwVersOption.ProductVersion])]: "26.0",
+      [key([SystemCommand.SwVers, SwVersOption.BuildVersion])]: "25A123",
+      [key([SystemCommand.Uname])]: "Darwin",
+      [key([SystemCommand.Uname, UnameOption.Release])]: "25.0.0",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUBrand])]: "",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.HardwareModel])]: "Mac16,1",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUCount])]: "10",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.PhysicalCPUCount])]: "10",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUFrequency])]: "",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.Virtualized])]: "0",
+      [key([SystemCommand.Uptime])]: "load averages: 0.10 0.20 0.30",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.MemorySize])]: "17179869184",
+      [key([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.PageSize])]: "16384",
+      [key([SystemCommand.VmStat])]:
+        "Pages free: 1000.\nPages inactive: 2000.\nPages speculative: 100.",
     };
-    const context = fixture({ platform: "darwin", commands });
+    const context = fixture({ platform: Platform.Darwin, commands });
     const [os, cpu, memory] = await Promise.all([
       collectOS(context),
       collectCPU(context),
@@ -144,24 +176,26 @@ test("renders stable JSON and aligned Unicode tables", () => {
 });
 
 test("parses CLI features and rejects invalid input", () => {
-  expect(parseArgs(["--json", "--strict", "--title", "Worker"])).toEqual({
-    action: "run",
-    format: "json",
+  expect(parseArgs([CliOption.Json, CliOption.Strict, CliOption.Title, "Worker"])).toEqual({
+    action: CliAction.Run,
+    format: OutputFormat.JSON,
     strict: true,
     title: "Worker",
   });
   expect(() => parseArgs(["unknown"])).toThrow("unknown option");
-  expect(() => parseArgs(["--title"])).toThrow("requires a value");
+  expect(() => parseArgs([CliOption.Title])).toThrow("requires a value");
 });
 
 test("help and version succeed while an invalid command fails", async () => {
-  for (const option of ["--help", "--version"]) {
-    const child = Bun.spawn(["bun", "src/cli.ts", option], { cwd: import.meta.dir + "/.." });
+  for (const option of [CliOption.Help, CliOption.Version]) {
+    const child = Bun.spawn([Executable.Bun, "src/cli.ts", option], {
+      cwd: import.meta.dir + "/..",
+    });
     expect(await child.exited).toBe(0);
   }
-  const child = Bun.spawn(["bun", "src/cli.ts", "invalid"], {
+  const child = Bun.spawn([Executable.Bun, "src/cli.ts", "invalid"], {
     cwd: import.meta.dir + "/..",
-    stderr: "pipe",
+    stderr: ProcessIO.Pipe,
   });
   expect(await child.exited).toBe(2);
 });

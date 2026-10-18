@@ -1,3 +1,5 @@
+import { RepoCommand } from "./tokens.ts";
+import { CliOption } from "../../../shared/tokens.ts";
 import pkg from "../package.json";
 import { blameHelp, runBlame } from "./commands/blame.ts";
 import { runOpen } from "./commands/open.ts";
@@ -33,16 +35,16 @@ General options:
 
 export async function runRepo(args: readonly string[]): Promise<number> {
   const command = args[0];
-  if (command === "--help" || command === "-h") {
+  if (command === CliOption.Help || command === CliOption.HelpShort) {
     console.log(help());
     return 0;
   }
-  if (command === "--version" || command === "-v") {
+  if (command === CliOption.Version || command === CliOption.VersionShort) {
     console.log(pkg.version);
     return 0;
   }
-  if (command === "blame") {
-    if (args[1] === "--help" || args[1] === "-h") {
+  if (command === RepoCommand.Blame) {
+    if (args[1] === CliOption.Help || args[1] === CliOption.HelpShort) {
       console.log(blameHelp());
       return 0;
     }

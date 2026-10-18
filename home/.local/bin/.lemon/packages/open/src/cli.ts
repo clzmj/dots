@@ -1,3 +1,4 @@
+import { CliOption } from "../../../shared/tokens";
 import pkg from "../package.json";
 import { OpenBackendError, openTargets } from "./index.ts";
 
@@ -17,24 +18,24 @@ function help(io: CliIO): void {
 ${pkg.description}
 
 Usage:
-  lemon open [--] TARGET...
+  lemon open [${CliOption.Separator}] TARGET...
 
 Options:
-  --help, -h       Show help
-  --version, -v    Show version`);
+  ${CliOption.Help}, ${CliOption.HelpShort}       Show help
+  ${CliOption.Version}, ${CliOption.VersionShort}    Show version`);
 }
 
 export async function runOpen(args: readonly string[], io: CliIO = defaultIO): Promise<number> {
-  if (args.length === 0 || args[0] === "--help" || args[0] === "-h") {
+  if (args.length === 0 || args[0] === CliOption.Help || args[0] === CliOption.HelpShort) {
     help(io);
     return 0;
   }
-  if (args[0] === "--version" || args[0] === "-v") {
+  if (args[0] === CliOption.Version || args[0] === CliOption.VersionShort) {
     io.out(pkg.version);
     return 0;
   }
 
-  const separator = args[0] === "--";
+  const separator = args[0] === CliOption.Separator;
   const targets = separator ? args.slice(1) : args;
   if (targets.length === 0) {
     io.error("lemon open: at least one target is required after --");

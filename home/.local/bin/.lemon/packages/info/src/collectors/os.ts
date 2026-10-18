@@ -1,5 +1,14 @@
+import {
+  DisplayValue,
+  OSName,
+  OSReleaseField,
+  SwVersOption,
+  SystemCommand,
+  SystemPath,
+  UnameOption,
+} from "../tokens";
 import { clean } from "../context";
-import type { MachineReport, ProbeContext } from "../types";
+import { Platform, type MachineReport, type ProbeContext } from "../types";
 
 export function parseOSRelease(contents: string): Record<string, string> {
   const entries: Record<string, string> = {};
@@ -22,32 +31,35 @@ export function parseOSRelease(contents: string): Record<string, string> {
 }
 
 export async function collectOS(context: ProbeContext): Promise<MachineReport["os"]> {
-  if (context.platform === "darwin") {
+  if (context.platform === Platform.Darwin) {
     const [name, version, build, uname, release] = await Promise.all([
-      context.run(["sw_vers", "-productName"]),
-      context.run(["sw_vers", "-productVersion"]),
-      context.run(["sw_vers", "-buildVersion"]),
-      context.run(["uname"]),
-      context.run(["uname", "-r"]),
+      context.run([SystemCommand.SwVers, SwVersOption.ProductName]),
+      context.run([SystemCommand.SwVers, SwVersOption.ProductVersion]),
+      context.run([SystemCommand.SwVers, SwVersOption.BuildVersion]),
+      context.run([SystemCommand.Uname]),
+      context.run([SystemCommand.Uname, UnameOption.Release]),
     ]);
     return {
-      name: clean(`${name.stdout} ${version.stdout} ${build.stdout}`, "macOS"),
-      kernel: clean(`${uname.stdout} ${release.stdout}`, "Darwin"),
+      name: clean(`${name.stdout} ${version.stdout} ${build.stdout}`, OSName.MacOS),
+      kernel: clean(`${uname.stdout} ${release.stdout}`, OSName.Darwin),
     };
   }
   const [contents, uname, release] = await Promise.all([
-    context.readText("/etc/os-release"),
-    context.run(["uname"]),
-    context.run(["uname", "-r"]),
+    context.readText(SystemPath.OSRelease),
+    context.run([SystemCommand.Uname]),
+    context.run([SystemCommand.Uname, UnameOption.Release]),
   ]);
   const fields = parseOSRelease(contents ?? "");
-  const id = fields.ID ? fields.ID[0]!.toUpperCase() + fields.ID.slice(1) : "Linux";
-  const version = fields.VERSION_ID || fields.VERSION || "";
-  const codename = fields.VERSION_CODENAME
-    ? fields.VERSION_CODENAME[0]!.toUpperCase() + fields.VERSION_CODENAME.slice(1)
+  const id = fields[OSReleaseField.ID]
+    ? fields[OSReleaseField.ID][0]!.toUpperCase() + fields[OSReleaseField.ID].slice(1)
+    : OSName.Linux;
+  const version = fields[OSReleaseField.VersionID] || fields[OSReleaseField.Version] || "";
+  const codename = fields[OSReleaseField.VersionCodename]
+    ? fields[OSReleaseField.VersionCodename][0]!.toUpperCase() +
+      fields[OSReleaseField.VersionCodename].slice(1)
     : "";
   return {
-    name: clean(`${id} ${version} ${codename}`, clean(uname.stdout, "Unknown")),
-    kernel: clean(`${uname.stdout} ${release.stdout}`, "Unknown"),
+    name: clean(`${id} ${version} ${codename}`, clean(uname.stdout, DisplayValue.Unknown)),
+    kernel: clean(`${uname.stdout} ${release.stdout}`, DisplayValue.Unknown),
   };
 }

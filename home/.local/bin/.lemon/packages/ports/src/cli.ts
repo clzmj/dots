@@ -1,3 +1,4 @@
+import { CliOption, DurationUnit } from "../../../shared/tokens.ts";
 import { createInterface } from "node:readline/promises";
 
 import pkg from "../package.json";
@@ -6,6 +7,7 @@ import {
   discoverServers,
   formatServerTable,
   parseSelection,
+  SelectionCommand,
   stopServers,
   type Server,
   type SystemAdapter,
@@ -36,12 +38,19 @@ Options:
   --version, -v     Show module version
 `;
 
+export enum ActionKind {
+  Help = "help",
+  Version = "version",
+  List = "list",
+  Stop = "stop",
+}
+
 type Action =
-  | { kind: "help" }
-  | { kind: "version" }
-  | { kind: "list"; json: boolean; includeAll: boolean; verbose: boolean }
+  | { kind: ActionKind.Help }
+  | { kind: ActionKind.Version }
+  | { kind: ActionKind.List; json: boolean; includeAll: boolean; verbose: boolean }
   | {
-      kind: "stop";
+      kind: ActionKind.Stop;
       ports: number[];
       all: boolean;
       yes: boolean;
@@ -57,26 +66,29 @@ export interface CliDependencies {
 }
 
 export function parseCli(args: readonly string[]): Action {
-  if (args.length === 0) return { kind: "list", json: false, includeAll: false, verbose: false };
+  if (args.length === 0)
+    return { kind: ActionKind.List, json: false, includeAll: false, verbose: false };
   const command = args[0];
-  if (command === "--help" || command === "-h") return { kind: "help" };
-  if (command === "--version" || command === "-v") return { kind: "version" };
+  if (command === CliOption.Help || command === CliOption.HelpShort)
+    return { kind: ActionKind.Help };
+  if (command === CliOption.Version || command === CliOption.VersionShort)
+    return { kind: ActionKind.Version };
 
-  if (command === "list" || command?.startsWith("-")) {
+  if (command === ActionKind.List || command?.startsWith("-")) {
     let json = false;
     let includeAll = false;
     let verbose = false;
-    const options = command === "list" ? args.slice(1) : args;
+    const options = command === ActionKind.List ? args.slice(1) : args;
     for (const option of options) {
-      if (option === "--json") json = true;
-      else if (option === "--all") includeAll = true;
-      else if (option === "--verbose") verbose = true;
+      if (option === CliOption.Json) json = true;
+      else if (option === CliOption.All) includeAll = true;
+      else if (option === CliOption.Verbose) verbose = true;
       else throw new Error(`unknown option for list: ${option}`);
     }
-    return { kind: "list", json, includeAll, verbose };
+    return { kind: ActionKind.List, json, includeAll, verbose };
   }
 
-  if (command === "stop") {
+  if (command === ActionKind.Stop) {
     const ports: number[] = [];
     let all = false;
     let yes = false;
@@ -84,24 +96,31 @@ export function parseCli(args: readonly string[]): Action {
     let killAfterTimeout = true;
     for (let index = 1; index < args.length; index += 1) {
       const option = args[index];
-      if (option === "--port") {
+      if (option === CliOption.Port) {
         const value = args[++index];
         const port = value === undefined ? Number.NaN : Number(value);
         if (!Number.isInteger(port) || port < 1 || port > 65_535) {
           throw new Error("--port requires a number between 1 and 65535");
         }
         ports.push(port);
-      } else if (option === "--all") all = true;
-      else if (option === "--yes" || option === "-y") yes = true;
-      else if (option === "--timeout") {
+      } else if (option === CliOption.All) all = true;
+      else if (option === CliOption.Yes || option === CliOption.YesShort) yes = true;
+      else if (option === CliOption.Timeout) {
         const value = args[++index];
         if (value === undefined) throw new Error("--timeout requires a duration");
         timeoutMs = parseDuration(value);
-      } else if (option === "--no-kill") killAfterTimeout = false;
+      } else if (option === CliOption.NoKill) killAfterTimeout = false;
       else throw new Error(`unknown option for stop: ${String(option)}`);
     }
     if (all && ports.length > 0) throw new Error("use either --all or --port, not both");
-    return { kind: "stop", ports: [...new Set(ports)], all, yes, timeoutMs, killAfterTimeout };
+    return {
+      kind: ActionKind.Stop,
+      ports: [...new Set(ports)],
+      all,
+      yes,
+      timeoutMs,
+      killAfterTimeout,
+    };
   }
 
   throw new Error(`unknown command: ${command}`);
@@ -111,7 +130,7 @@ export function parseDuration(value: string): number {
   const match = value.match(/^(\d+(?:\.\d+)?)(ms|s)?$/);
   if (!match?.[1]) throw new Error(`invalid duration: ${value}`);
   const amount = Number(match[1]);
-  const milliseconds = match[2] === "s" ? amount * 1_000 : amount;
+  const milliseconds = match[2] === DurationUnit.Second ? amount * 1_000 : amount;
   if (!Number.isFinite(milliseconds) || milliseconds < 0) {
     throw new Error(`invalid duration: ${value}`);
   }
@@ -133,18 +152,18 @@ export async function runPorts(
     return 2;
   }
 
-  if (action.kind === "help") {
+  if (action.kind === ActionKind.Help) {
     log(HELP.trimEnd());
     return 0;
   }
-  if (action.kind === "version") {
+  if (action.kind === ActionKind.Version) {
     log(pkg.version);
     return 0;
   }
 
   const system = dependencies.system ?? defaultSystem;
   try {
-    if (action.kind === "list") {
+    if (action.kind === ActionKind.List) {
       const servers = await discoverServers(system, action.includeAll);
       log(action.json ? JSON.stringify(servers, null, 2) : renderServers(servers, action.verbose));
       return 0;
@@ -208,7 +227,8 @@ async function selectInteractively(
 ): Promise<Server[]> {
   log(renderServers(servers));
   const answer = await ask("Select processes (1,3-5 or all; q to quit): ", dependencies);
-  if (["q", "quit"].includes(answer.trim().toLowerCase())) return [];
+  const selection = answer.trim().toLowerCase();
+  if (selection === SelectionCommand.Quit || selection === SelectionCommand.QuitShort) return [];
   const indexes = parseSelection(answer, servers.length);
   return indexes.map((index) => servers[index]).filter((server): server is Server => !!server);
 }

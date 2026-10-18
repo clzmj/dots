@@ -1,7 +1,10 @@
-import type { Platform, ProbeContext } from "./types";
+import { ProcessIO } from "../../../shared/tokens";
+import { Platform, type ProbeContext } from "./types";
 
 function platformName(value: string): Platform {
-  return value === "darwin" || value === "linux" ? value : "other";
+  if (value === Platform.Darwin) return Platform.Darwin;
+  if (value === Platform.Linux) return Platform.Linux;
+  return Platform.Other;
 }
 
 export function createProbeContext(overrides: Partial<ProbeContext> = {}): ProbeContext {
@@ -12,7 +15,11 @@ export function createProbeContext(overrides: Partial<ProbeContext> = {}): Probe
     env: process.env,
     async run(command) {
       try {
-        const child = Bun.spawn([...command], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+        const child = Bun.spawn([...command], {
+          stdin: ProcessIO.Ignore,
+          stdout: ProcessIO.Pipe,
+          stderr: ProcessIO.Pipe,
+        });
         const [stdout, stderr, exitCode] = await Promise.all([
           new Response(child.stdout).arrayBuffer(),
           new Response(child.stderr).arrayBuffer(),

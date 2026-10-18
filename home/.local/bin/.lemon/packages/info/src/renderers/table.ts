@@ -1,3 +1,4 @@
+import { DisplayValue } from "../tokens";
 import type { MachineReport } from "../types";
 
 const MIN_DATA_WIDTH = 20;
@@ -89,7 +90,7 @@ export function renderTable(report: MachineReport): string {
     "VOLUME",
     report.disk.totalMiB > 0
       ? `${metric(report.disk.usedMiB / 1024)}/${metric(report.disk.totalMiB / 1024)} GiB [${metric(percent(report.disk.usedMiB, report.disk.totalMiB))}%]`
-      : "Unknown",
+      : DisplayValue.Unknown,
   );
   row("DISK USAGE", barGraph(report.disk.usedMiB, report.disk.totalMiB, width));
   divider();
@@ -97,7 +98,7 @@ export function renderTable(report: MachineReport): string {
     "MEMORY",
     report.memory.totalKiB > 0
       ? `${metric(report.memory.usedKiB / 1_048_576)}/${metric(report.memory.totalKiB / 1_048_576)} GiB [${metric(percent(report.memory.usedKiB, report.memory.totalKiB))}%]`
-      : "Unknown",
+      : DisplayValue.Unknown,
   );
   row("USAGE", barGraph(report.memory.usedKiB, report.memory.totalKiB, width));
   divider();

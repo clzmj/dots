@@ -1,7 +1,9 @@
+import { CliOption } from "../../../shared/tokens.ts";
 import { describe, expect, test } from "bun:test";
 
-import { parseCli, parseDuration, runNotify } from "../src/cli";
+import { ActionKind, parseCli, parseDuration, runNotify } from "../src/cli";
 import {
+  NotificationCondition,
   formatDuration,
   osc777,
   runAndNotify,
@@ -54,13 +56,15 @@ describe("formatting", () => {
 describe("argument parsing", () => {
   test("supports legacy commands and an explicit option boundary", () => {
     expect(parseCli(["printf", "%s", "hello"])).toMatchObject({
-      kind: "run",
+      kind: ActionKind.Run,
       command: ["printf", "%s", "hello"],
     });
-    expect(parseCli(["--on", "failure", "--after", "1.5m", "--", "-command"])).toEqual({
-      kind: "run",
+    expect(
+      parseCli([CliOption.On, "failure", CliOption.After, "1.5m", CliOption.Separator, "-command"]),
+    ).toEqual({
+      kind: ActionKind.Run,
       command: ["-command"],
-      condition: "failure",
+      condition: NotificationCondition.Failure,
       afterMs: 90_000,
       title: undefined,
       alwaysZero: false,
@@ -72,7 +76,7 @@ describe("argument parsing", () => {
     expect(parseDuration("2s")).toBe(2_000);
     expect(parseDuration("1h")).toBe(3_600_000);
     expect(() => parseCli(["--unknown"])).toThrow("unknown option");
-    expect(() => parseCli(["--on", "sometimes", "echo"])).toThrow("--on requires");
+    expect(() => parseCli([CliOption.On, "sometimes", "echo"])).toThrow("--on requires");
     expect(() => parseCli([])).toThrow("command is required");
   });
 });
@@ -100,7 +104,7 @@ describe("command execution", () => {
     const notifications = captureNotifications();
     const result = await runAndNotify(
       ["fails"],
-      { condition: "success" },
+      { condition: NotificationCondition.Success },
       runtime,
       notifications.notifier,
     );
@@ -147,7 +151,7 @@ describe("CLI", () => {
     const compatibilityRuntime = new FakeRuntime();
     compatibilityRuntime.status = 17;
     expect(
-      await runNotify(["--always-zero", "fails"], {
+      await runNotify([CliOption.AlwaysZero, "fails"], {
         runtime: compatibilityRuntime,
         notifier: async () => true,
       }),

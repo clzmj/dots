@@ -1,3 +1,4 @@
+import { CliOption, Executable, ProcessIO } from "../../../shared/tokens";
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 
@@ -8,9 +9,9 @@ const root = dirname(import.meta.dir);
 const cli = join(root, "src/cli.ts");
 
 async function run(args: readonly string[]) {
-  const child = Bun.spawn(["bun", cli, ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const child = Bun.spawn([Executable.Bun, cli, ...args], {
+    stdout: ProcessIO.Pipe,
+    stderr: ProcessIO.Pipe,
   });
   const [stdout, stderr, status] = await Promise.all([
     new Response(child.stdout).text(),
@@ -22,7 +23,7 @@ async function run(args: readonly string[]) {
 
 describe("open CLI", () => {
   test("shows help with no arguments and --help", async () => {
-    for (const args of [[], ["--help"]]) {
+    for (const args of [[], [CliOption.Help]]) {
       const result = await run(args);
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("Usage:");
@@ -31,7 +32,7 @@ describe("open CLI", () => {
   });
 
   test("prints its version", async () => {
-    const result = await run(["--version"]);
+    const result = await run([CliOption.Version]);
     expect(result).toMatchObject({ status: 0, stdout: `${pkg.version}\n`, stderr: "" });
   });
 
@@ -43,7 +44,7 @@ describe("open CLI", () => {
 
   test("requires a target after the option separator", async () => {
     const errors: string[] = [];
-    const status = await runOpen(["--"], {
+    const status = await runOpen([CliOption.Separator], {
       out: () => {},
       error: (message) => errors.push(message),
     });

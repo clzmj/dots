@@ -1,4 +1,5 @@
 import type { ProviderName } from "../remote.ts";
+import type { ResourceKind } from "../target.ts";
 
 export interface LineRange {
   readonly start: number;
@@ -6,7 +7,7 @@ export interface LineRange {
 }
 
 export interface ResourceTarget {
-  readonly kind: "blob" | "tree";
+  readonly kind: ResourceKind;
   readonly ref: string;
   readonly path: string;
   readonly lines?: LineRange;

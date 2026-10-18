@@ -1,6 +1,25 @@
+import { ProcessIO, DurationUnit } from "../../../shared/tokens.ts";
 import { open } from "node:fs/promises";
 
-export type NotificationCondition = "always" | "success" | "failure";
+enum TerminalPath {
+  Tty = "/dev/tty",
+}
+
+enum FileOpenMode {
+  Write = "w",
+}
+
+export enum NotificationCondition {
+  Always = "always",
+  Success = "success",
+  Failure = "failure",
+}
+
+export function parseNotificationCondition(value: string | undefined): NotificationCondition {
+  const condition = Object.values(NotificationCondition).find((candidate) => candidate === value);
+  if (condition === undefined) throw new Error("--on requires always, success, or failure");
+  return condition;
+}
 
 export interface NotifyOptions {
   condition?: NotificationCondition;
@@ -25,9 +44,9 @@ export interface RunResult {
 export const defaultRuntime: CommandRuntime = {
   async spawn(command) {
     const child = Bun.spawn([...command], {
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
+      stdin: ProcessIO.Inherit,
+      stdout: ProcessIO.Inherit,
+      stderr: ProcessIO.Inherit,
     });
     return child.exited;
   },
@@ -39,9 +58,9 @@ export function formatDuration(milliseconds: number): string {
   const hours = Math.floor(duration / 3_600);
   const minutes = Math.floor((duration % 3_600) / 60);
   const seconds = duration % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
+  if (hours > 0) return `${hours}${DurationUnit.Hour} ${minutes}${DurationUnit.Minute}`;
+  if (minutes > 0) return `${minutes}${DurationUnit.Minute} ${seconds}${DurationUnit.Second}`;
+  return `${seconds}${DurationUnit.Second}`;
 }
 
 export function osc777(title: string, message: string): string {
@@ -51,7 +70,7 @@ export function osc777(title: string, message: string): string {
 export async function terminalNotifier(title: string, message: string): Promise<boolean> {
   const sequence = osc777(title, message);
   try {
-    const terminal = await open("/dev/tty", "w");
+    const terminal = await open(TerminalPath.Tty, FileOpenMode.Write);
     try {
       await terminal.write(sequence);
     } finally {
@@ -72,7 +91,7 @@ export async function runAndNotify(
   notify: Notifier = terminalNotifier,
 ): Promise<RunResult> {
   if (command.length === 0) throw new Error("a command is required");
-  const condition = options.condition ?? "always";
+  const condition = options.condition ?? NotificationCondition.Always;
   const afterMs = options.afterMs ?? 0;
   if (!Number.isFinite(afterMs) || afterMs < 0) throw new Error("after must be non-negative");
 
@@ -87,9 +106,9 @@ export async function runAndNotify(
   const durationMs = Math.max(0, runtime.now() - started);
 
   const matchesCondition =
-    condition === "always" ||
-    (condition === "success" && status === 0) ||
-    (condition === "failure" && status !== 0);
+    condition === NotificationCondition.Always ||
+    (condition === NotificationCondition.Success && status === 0) ||
+    (condition === NotificationCondition.Failure && status !== 0);
   let notified = false;
   if (matchesCondition && durationMs >= afterMs) {
     const title = options.title ?? commandName(command[0] ?? "command");

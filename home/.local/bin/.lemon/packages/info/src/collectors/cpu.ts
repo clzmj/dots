@@ -1,5 +1,14 @@
+import {
+  DisplayValue,
+  NprocOption,
+  ProbeValue,
+  SysctlKey,
+  SysctlOption,
+  SystemCommand,
+  SystemPath,
+} from "../tokens";
 import { clean, numeric, valueAfterColon } from "../context";
-import type { MachineReport, ProbeContext } from "../types";
+import { Platform, type MachineReport, type ProbeContext } from "../types";
 
 export function parseLoadAverage(output: string): [number, number, number] {
   const match = output.match(/load averages?:\s*([0-9.,]+)[, ]+\s*([0-9.,]+)[, ]+\s*([0-9.,]+)/i);
@@ -13,37 +22,40 @@ export function parseLoadAverage(output: string): [number, number, number] {
 }
 
 export async function collectCPU(context: ProbeContext): Promise<MachineReport["cpu"]> {
-  if (context.platform === "darwin") {
+  if (context.platform === Platform.Darwin) {
     const [model, hardware, cores, physical, frequency, virtualized, uptime] = await Promise.all([
-      context.run(["sysctl", "-n", "machdep.cpu.brand_string"]),
-      context.run(["sysctl", "-n", "hw.model"]),
-      context.run(["sysctl", "-n", "hw.ncpu"]),
-      context.run(["sysctl", "-n", "hw.physicalcpu"]),
-      context.run(["sysctl", "-n", "hw.cpufrequency"]),
-      context.run(["sysctl", "-n", "kern.hv_vmm_present"]),
-      context.run(["uptime"]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUBrand]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.HardwareModel]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUCount]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.PhysicalCPUCount]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.CPUFrequency]),
+      context.run([SystemCommand.Sysctl, SysctlOption.Name, SysctlKey.Virtualized]),
+      context.run([SystemCommand.Uptime]),
     ]);
     const frequencyHz = numeric(frequency.stdout);
     const frequencyGHz = frequencyHz > 0 ? frequencyHz / 1_000_000_000 : undefined;
     return {
-      model: clean(model.stdout, clean(hardware.stdout, "Unknown")),
+      model: clean(model.stdout, clean(hardware.stdout, DisplayValue.Unknown)),
       cores: Math.max(1, numeric(cores.stdout, 1)),
       coresPerSocket: Math.max(1, numeric(physical.stdout, numeric(cores.stdout, 1))),
       sockets: 1,
-      hypervisor: clean(virtualized.stdout) === "1" ? "Virtualized" : "Bare Metal",
+      hypervisor:
+        clean(virtualized.stdout) === ProbeValue.Enabled
+          ? DisplayValue.Virtualized
+          : DisplayValue.BareMetal,
       ...(frequencyGHz === undefined ? {} : { frequencyGHz }),
       loadAverage: parseLoadAverage(uptime.stdout),
     };
   }
   const [lscpu, cpuinfo, nproc, uptime] = await Promise.all([
-    context.hasCommand("lscpu")
-      ? context.run(["lscpu"])
+    context.hasCommand(SystemCommand.Lscpu)
+      ? context.run([SystemCommand.Lscpu])
       : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 }),
-    context.readText("/proc/cpuinfo"),
-    context.hasCommand("nproc")
-      ? context.run(["nproc", "--all"])
+    context.readText(SystemPath.CPUInfo),
+    context.hasCommand(SystemCommand.Nproc)
+      ? context.run([SystemCommand.Nproc, NprocOption.All])
       : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 }),
-    context.run(["uptime"]),
+    context.run([SystemCommand.Uptime]),
   ]);
   const info = cpuinfo ?? "";
   const cores = Math.max(
@@ -64,7 +76,10 @@ export async function collectCPU(context: ProbeContext): Promise<MachineReport["
       numeric(valueAfterColon(lscpu.stdout, /^Core\(s\) per socket$/i), cores),
     ),
     sockets: Math.max(1, numeric(valueAfterColon(lscpu.stdout, /^Socket\(s\)$/i), 1)),
-    hypervisor: clean(valueAfterColon(lscpu.stdout, /^Hypervisor vendor$/i), "Bare Metal"),
+    hypervisor: clean(
+      valueAfterColon(lscpu.stdout, /^Hypervisor vendor$/i),
+      DisplayValue.BareMetal,
+    ),
     ...(frequencyGHz === undefined ? {} : { frequencyGHz }),
     loadAverage: parseLoadAverage(uptime.stdout),
   };

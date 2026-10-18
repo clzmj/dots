@@ -1,9 +1,28 @@
+import { ProcessIO, RuntimePlatform as SupportedPlatform } from "../../../shared/tokens";
 import { accessSync, constants } from "node:fs";
 
-export type SupportedPlatform = "darwin" | "linux" | "win32";
+export { RuntimePlatform as SupportedPlatform } from "../../../shared/tokens";
+
+export enum OpenBackendName {
+  Open = "open",
+  XdgOpen = "xdg-open",
+  Gio = "gio",
+  Wslview = "wslview",
+  Explorer = "explorer",
+}
+
+export enum OpenCommand {
+  Native = "/usr/bin/open",
+  Explorer = "explorer.exe",
+}
+
+export enum OpenEnvironment {
+  WslDistroName = "WSL_DISTRO_NAME",
+  WslInterop = "WSL_INTEROP",
+}
 
 export interface OpenBackend {
-  readonly name: "open" | "xdg-open" | "gio" | "wslview" | "explorer";
+  readonly name: OpenBackendName;
   readonly command: readonly string[];
 }
 
@@ -44,40 +63,42 @@ export function resolveOpenBackend(options: ResolveOpenOptions = {}): OpenBacken
   const which = options.which ?? Bun.which;
   const executable = options.executable ?? defaultExecutable;
 
-  if (platform === "darwin") {
-    if (executable("/usr/bin/open")) return { name: "open", command: ["/usr/bin/open"] };
+  if (platform === SupportedPlatform.Darwin) {
+    if (executable(OpenCommand.Native))
+      return { name: OpenBackendName.Open, command: [OpenCommand.Native] };
     throw new OpenBackendError("/usr/bin/open is not executable");
   }
 
-  if (platform === "win32") {
+  if (platform === SupportedPlatform.Windows) {
     return {
-      name: "explorer",
-      command: [which("explorer.exe") ?? "explorer.exe"],
+      name: OpenBackendName.Explorer,
+      command: [which(OpenCommand.Explorer) ?? OpenCommand.Explorer],
     };
   }
 
-  if (platform !== "linux") throw new OpenBackendError(`unsupported platform: ${platform}`);
+  if (platform !== SupportedPlatform.Linux)
+    throw new OpenBackendError(`unsupported platform: ${platform}`);
 
-  const wsl = Boolean(env.WSL_DISTRO_NAME || env.WSL_INTEROP);
+  const wsl = Boolean(env[OpenEnvironment.WslDistroName] || env[OpenEnvironment.WslInterop]);
   if (wsl) {
-    const wslview = which("wslview");
-    if (wslview) return { name: "wslview", command: [wslview] };
+    const wslview = which(OpenBackendName.Wslview);
+    if (wslview) return { name: OpenBackendName.Wslview, command: [wslview] };
   }
 
-  const xdgOpen = which("xdg-open");
-  if (xdgOpen) return { name: "xdg-open", command: [xdgOpen] };
+  const xdgOpen = which(OpenBackendName.XdgOpen);
+  if (xdgOpen) return { name: OpenBackendName.XdgOpen, command: [xdgOpen] };
 
-  const gio = which("gio");
-  if (gio) return { name: "gio", command: [gio, "open"] };
+  const gio = which(OpenBackendName.Gio);
+  if (gio) return { name: OpenBackendName.Gio, command: [gio, OpenBackendName.Open] };
 
   throw new OpenBackendError("no opener found (install xdg-open or gio)");
 }
 
 function defaultSpawn(command: readonly string[]): SpawnedProcess {
   return Bun.spawn([...command], {
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
+    stdin: ProcessIO.Inherit,
+    stdout: ProcessIO.Inherit,
+    stderr: ProcessIO.Inherit,
   });
 }
 

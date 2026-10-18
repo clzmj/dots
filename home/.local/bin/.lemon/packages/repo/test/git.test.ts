@@ -1,3 +1,4 @@
+import { GitCommand, GitOption, GitRemote, GitRevision } from "../src/tokens.ts";
 import { describe, expect, test } from "bun:test";
 
 import { blameLine, repositoryState, type GitRunner } from "../src/git.ts";
@@ -8,10 +9,12 @@ describe("repositoryState", () => {
     const git: GitRunner = async (args) => {
       calls.push(args.join(" "));
       const command = args.join(" ");
-      if (command === "rev-parse --show-toplevel") return "/repo";
-      if (command === "remote get-url origin") return undefined;
-      if (command === "remote get-url upstream") return "git@gitlab.com:acme/widgets.git";
-      if (command === "branch --show-current") return "main";
+      if (command === `${GitCommand.RevParse} ${GitOption.ShowToplevel}`) return "/repo";
+      if (command === `${GitCommand.Remote} ${GitCommand.GetUrl} ${GitRemote.Origin}`)
+        return undefined;
+      if (command === `${GitCommand.Remote} ${GitCommand.GetUrl} ${GitRemote.Upstream}`)
+        return "git@gitlab.com:acme/widgets.git";
+      if (command === `${GitCommand.Branch} ${GitOption.ShowCurrent}`) return "main";
       return undefined;
     };
     expect(await repositoryState("/repo/src", {}, git)).toEqual({
@@ -26,18 +29,19 @@ describe("repositoryState", () => {
   test("uses HEAD in detached state and rejects ambiguous remotes", async () => {
     const detached: GitRunner = async (args) => {
       const command = args.join(" ");
-      if (command === "rev-parse --show-toplevel") return "/repo";
-      if (command === "remote get-url origin") return "https://github.com/acme/widgets.git";
-      if (command === "branch --show-current") return "";
-      if (command === "rev-parse HEAD") return "a".repeat(40);
+      if (command === `${GitCommand.RevParse} ${GitOption.ShowToplevel}`) return "/repo";
+      if (command === `${GitCommand.Remote} ${GitCommand.GetUrl} ${GitRemote.Origin}`)
+        return "https://github.com/acme/widgets.git";
+      if (command === `${GitCommand.Branch} ${GitOption.ShowCurrent}`) return "";
+      if (command === `${GitCommand.RevParse} ${GitRevision.Head}`) return "a".repeat(40);
       return undefined;
     };
     expect((await repositoryState("/repo", {}, detached)).ref).toBe("a".repeat(40));
 
     const ambiguous: GitRunner = async (args) => {
       const command = args.join(" ");
-      if (command === "rev-parse --show-toplevel") return "/repo";
-      if (command === "remote") return "alpha\nbeta";
+      if (command === `${GitCommand.RevParse} ${GitOption.ShowToplevel}`) return "/repo";
+      if (command === GitCommand.Remote) return "alpha\nbeta";
       return undefined;
     };
     await expect(repositoryState("/repo", {}, ambiguous)).rejects.toThrow("multiple remotes");
@@ -47,7 +51,7 @@ describe("repositoryState", () => {
 describe("blameLine", () => {
   test("strips the root-commit marker", async () => {
     const git: GitRunner = async (args) =>
-      args[0] === "rev-parse"
+      args[0] === GitCommand.RevParse
         ? "abc1234000000000000000000000000000000000"
         : "^abc1234 (A U Thor 2026-01-01 1) line";
     expect((await blameLine("/repo", "a.ts", 1, git)).sha).toBe(

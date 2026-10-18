@@ -1,5 +1,17 @@
+import {
+  DisplayValue,
+  HostnameOption,
+  IPArgument,
+  InfoEnvironment,
+  NetworkAddress,
+  ScutilOption,
+  SystemCommand,
+  SystemPath,
+  UnameOption,
+  WhoArgument,
+} from "../tokens";
 import { clean } from "../context";
-import type { MachineReport, ProbeContext } from "../types";
+import { Platform, type MachineReport, type ProbeContext } from "../types";
 
 export function parseIPOutput(output: string): string | undefined {
   for (const line of output.split("\n")) {
@@ -9,8 +21,8 @@ export function parseIPOutput(output: string): string | undefined {
     const address = match[2]!;
     if (
       !/^(lo|docker|br-|veth)/.test(device) &&
-      address !== "::1" &&
-      !address.startsWith("fe80:")
+      address !== NetworkAddress.IPv6Loopback &&
+      !address.startsWith(NetworkAddress.IPv6LinkLocalPrefix)
     ) {
       return address;
     }
@@ -25,7 +37,7 @@ export function parseIfconfig(output: string): string | undefined {
     if (header) device = header[1]!;
     if (/^(lo|docker|utun|awdl|llw|bridge|veth)/.test(device)) continue;
     const match = line.match(/\binet\s+(?:addr:)?([^\s]+)/);
-    if (match?.[1] !== undefined && match[1] !== "127.0.0.1") return match[1];
+    if (match?.[1] !== undefined && match[1] !== NetworkAddress.IPv4Loopback) return match[1];
   }
   return undefined;
 }
@@ -42,36 +54,36 @@ export function parseDNS(contents: string): string[] {
 }
 
 export async function collectNetwork(context: ProbeContext): Promise<MachineReport["network"]> {
-  const hostnameCommand = context.hasCommand("hostname")
-    ? context.run(["hostname", "-f"])
-    : context.run(["uname", "-n"]);
-  const usingIP = context.hasCommand("ip");
+  const hostnameCommand = context.hasCommand(SystemCommand.Hostname)
+    ? context.run([SystemCommand.Hostname, HostnameOption.FullyQualified])
+    : context.run([SystemCommand.Uname, UnameOption.NodeName]);
+  const usingIP = context.hasCommand(SystemCommand.IP);
   const addressCommand = usingIP
-    ? context.run(["ip", "-o", "addr", "show"])
-    : context.hasCommand("ifconfig")
-      ? context.run(["ifconfig"])
+    ? context.run([SystemCommand.IP, IPArgument.Oneline, IPArgument.Address, IPArgument.Show])
+    : context.hasCommand(SystemCommand.Ifconfig)
+      ? context.run([SystemCommand.Ifconfig])
       : Promise.resolve({ stdout: "", stderr: "", exitCode: 127 });
   const dnsCommand =
-    context.platform === "darwin" && context.hasCommand("scutil")
-      ? context.run(["scutil", "--dns"]).then((result) => result.stdout)
-      : context.readText("/etc/resolv.conf").then((value) => value ?? "");
+    context.platform === Platform.Darwin && context.hasCommand(SystemCommand.Scutil)
+      ? context.run([SystemCommand.Scutil, ScutilOption.DNS]).then((result) => result.stdout)
+      : context.readText(SystemPath.ResolvConf).then((value) => value ?? "");
   const [user, hostnameResult, addressResult, who, dns] = await Promise.all([
-    context.run(["whoami"]),
+    context.run([SystemCommand.Whoami]),
     hostnameCommand,
     addressCommand,
-    context.run(["who", "am", "i"]),
+    context.run([SystemCommand.Who, WhoArgument.Am, WhoArgument.I]),
     dnsCommand,
   ]);
   let hostname = clean(hostnameResult.stdout);
-  if (!hostname && context.hasCommand("hostname"))
-    hostname = clean((await context.run(["hostname"])).stdout);
+  if (!hostname && context.hasCommand(SystemCommand.Hostname))
+    hostname = clean((await context.run([SystemCommand.Hostname])).stdout);
   return {
-    hostname: hostname || "Not Defined",
+    hostname: hostname || DisplayValue.NotDefined,
     machineIP:
       (usingIP ? parseIPOutput(addressResult.stdout) : parseIfconfig(addressResult.stdout)) ||
-      "No IP found",
-    clientIP: clean(who.stdout.match(/\(([^)]+)\)\s*$/)?.[1], "Not connected"),
+      DisplayValue.NoIPFound,
+    clientIP: clean(who.stdout.match(/\(([^)]+)\)\s*$/)?.[1], DisplayValue.NotConnected),
     dnsIPs: parseDNS(dns),
-    currentUser: clean(user.stdout, context.env.USER || "Unknown"),
+    currentUser: clean(user.stdout, context.env[InfoEnvironment.User] || DisplayValue.Unknown),
   };
 }

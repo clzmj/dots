@@ -1,8 +1,13 @@
 import { realpathSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
+export enum ResourceKind {
+  Blob = "blob",
+  Tree = "tree",
+}
+
 export interface RepositoryTarget {
-  readonly kind: "blob" | "tree";
+  readonly kind: ResourceKind;
   readonly path: string;
 }
 
@@ -22,7 +27,7 @@ export function repositoryTarget(
   if (relativePath === ".." || relativePath.startsWith("../") || relativePath.startsWith("..\\"))
     throw new Error("path is outside the repository");
   return {
-    kind: statSync(target).isDirectory() ? "tree" : "blob",
+    kind: statSync(target).isDirectory() ? ResourceKind.Tree : ResourceKind.Blob,
     path: relativePath.replaceAll("\\", "/"),
   };
 }

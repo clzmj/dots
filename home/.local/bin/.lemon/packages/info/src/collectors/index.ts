@@ -1,3 +1,4 @@
+import { DisplayValue, HostnameOption, InfoEnvironment, SystemCommand } from "../tokens";
 import { clean } from "../context";
 import type { MachineReport, ProbeContext } from "../types";
 import { collectCPU } from "./cpu";
@@ -17,14 +18,15 @@ export async function collectMachineReport(
 ): Promise<MachineReport> {
   const configuredTitle =
     options.title ||
-    context.env.LEMON_INFO_TITLE ||
-    context.env.MACHINE_REPORT_TITLE ||
-    context.env.TR100_TITLE;
+    context.env[InfoEnvironment.LemonTitle] ||
+    context.env[InfoEnvironment.MachineReportTitle] ||
+    context.env[InfoEnvironment.LegacyTitle];
   const titlePromise = configuredTitle
     ? Promise.resolve(configuredTitle)
-    : Promise.all([context.run(["whoami"]), context.run(["hostname", "-s"])]).then(([user, host]) =>
-        clean(`${user.stdout} @ ${host.stdout}`, "Machine"),
-      );
+    : Promise.all([
+        context.run([SystemCommand.Whoami]),
+        context.run([SystemCommand.Hostname, HostnameOption.Short]),
+      ]).then(([user, host]) => clean(`${user.stdout} @ ${host.stdout}`, DisplayValue.Machine));
   const [title, os, network, cpu, memory, disk, login] = await Promise.all([
     titlePromise,
     collectOS(context),

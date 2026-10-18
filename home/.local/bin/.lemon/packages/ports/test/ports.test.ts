@@ -1,6 +1,7 @@
+import { CliOption, Executable } from "../../../shared/tokens.ts";
 import { describe, expect, test } from "bun:test";
 
-import { parseCli, parseDuration, runPorts } from "../src/cli";
+import { ActionKind, parseCli, parseDuration, runPorts } from "../src/cli";
 import {
   discoverServers,
   isDevelopmentServer,
@@ -8,7 +9,7 @@ import {
   parseSelection,
   stopServers,
   type CommandResult,
-  type ProcessSignal,
+  ProcessSignal,
   type Server,
   type SystemAdapter,
 } from "../src/ports";
@@ -52,7 +53,7 @@ class FakeSystem implements SystemAdapter {
   }
 
   async run(command: readonly string[]): Promise<CommandResult> {
-    if (command[0] === "lsof") {
+    if (command[0] === Executable.Lsof) {
       return { exitCode: this.lsofExitCode, stdout: this.lsof, stderr: this.lsofError };
     }
     const pid = Number(command[2]);
@@ -65,8 +66,8 @@ class FakeSystem implements SystemAdapter {
   signal(pid: number, signal: ProcessSignal): boolean {
     this.signals.push([pid, signal]);
     if (this.alive.get(pid) !== true) return false;
-    if (signal === "SIGTERM" && this.termExits.has(pid)) this.alive.set(pid, false);
-    if (signal === "SIGKILL" && this.killExits.has(pid)) this.alive.set(pid, false);
+    if (signal === ProcessSignal.Terminate && this.termExits.has(pid)) this.alive.set(pid, false);
+    if (signal === ProcessSignal.Kill && this.killExits.has(pid)) this.alive.set(pid, false);
     return true;
   }
 
@@ -135,29 +136,38 @@ describe("selection and argument parsing", () => {
 
   test("parses list and stop options", () => {
     expect(parseCli([])).toEqual({
-      kind: "list",
+      kind: ActionKind.List,
       json: false,
       includeAll: false,
       verbose: false,
     });
-    expect(parseCli(["list", "--json", "--all"])).toEqual({
-      kind: "list",
+    expect(parseCli(["list", CliOption.Json, CliOption.All])).toEqual({
+      kind: ActionKind.List,
       json: true,
       includeAll: true,
       verbose: false,
     });
-    expect(parseCli(["stop", "--port", "3000", "--port", "3000", "-y", "--timeout", "2s"])).toEqual(
-      {
-        kind: "stop",
-        ports: [3000],
-        all: false,
-        yes: true,
-        timeoutMs: 2000,
-        killAfterTimeout: true,
-      },
-    );
-    expect(() => parseCli(["stop", "--port", "0"])).toThrow("between 1 and 65535");
-    expect(() => parseCli(["stop", "--all", "--port", "3000"])).toThrow("either");
+    expect(
+      parseCli([
+        "stop",
+        CliOption.Port,
+        "3000",
+        CliOption.Port,
+        "3000",
+        CliOption.YesShort,
+        CliOption.Timeout,
+        "2s",
+      ]),
+    ).toEqual({
+      kind: ActionKind.Stop,
+      ports: [3000],
+      all: false,
+      yes: true,
+      timeoutMs: 2000,
+      killAfterTimeout: true,
+    });
+    expect(() => parseCli(["stop", CliOption.Port, "0"])).toThrow("between 1 and 65535");
+    expect(() => parseCli(["stop", CliOption.All, CliOption.Port, "3000"])).toThrow("either");
     expect(parseDuration("250ms")).toBe(250);
     expect(parseDuration("1.5s")).toBe(1500);
   });
@@ -176,15 +186,15 @@ describe("safe stopping", () => {
     system.termExits.add(4001);
     const result = await stopServers([target], system, { timeoutMs: 100 });
     expect(result).toEqual({ terminated: [4001], killed: [], stale: [], failed: [] });
-    expect(system.signals).toContainEqual([4001, "SIGTERM"]);
-    expect(system.signals.some(([, signal]) => signal === "SIGKILL")).toBe(false);
+    expect(system.signals).toContainEqual([4001, ProcessSignal.Terminate]);
+    expect(system.signals.some(([, signal]) => signal === ProcessSignal.Kill)).toBe(false);
   });
 
   test("escalates a survivor and verifies it exited", async () => {
     const system = new FakeSystem();
     const result = await stopServers([target], system, { timeoutMs: 0 });
     expect(result).toEqual({ terminated: [], killed: [4001], stale: [], failed: [] });
-    expect(system.signals).toContainEqual([4001, "SIGKILL"]);
+    expect(system.signals).toContainEqual([4001, ProcessSignal.Kill]);
   });
 
   test("reports survivors when escalation is disabled", async () => {
@@ -226,7 +236,7 @@ describe("CLI", () => {
   test("lists JSON and handles invalid commands", async () => {
     const lines: string[] = [];
     expect(
-      await runPorts(["list", "--json"], {
+      await runPorts(["list", CliOption.Json], {
         system: new FakeSystem(),
         log: (line) => lines.push(line),
       }),

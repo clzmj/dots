@@ -1,8 +1,14 @@
+import { CliOption } from "../../../../shared/tokens.ts";
 import { repositoryState } from "../git.ts";
 import { provider } from "../providers/index.ts";
 import type { LineRange } from "../providers/index.ts";
-import { detectProvider, normalizeRemote, type ProviderName } from "../remote.ts";
-import { repositoryTarget } from "../target.ts";
+import {
+  detectProvider,
+  normalizeRemote,
+  parseProviderName,
+  type ProviderName,
+} from "../remote.ts";
+import { repositoryTarget, ResourceKind } from "../target.ts";
 import {
   dependencies,
   positiveInteger,
@@ -10,7 +16,17 @@ import {
   type ResolvedDependencies,
 } from "./shared.ts";
 
-type OpenAction = "open" | "print" | "copy";
+export enum OpenAction {
+  Open = "open",
+  Print = "print",
+  Copy = "copy",
+}
+
+const actionOptions = new Map<string, OpenAction>([
+  [CliOption.Open, OpenAction.Open],
+  [CliOption.Print, OpenAction.Print],
+  [CliOption.Copy, OpenAction.Copy],
+]);
 
 interface OpenArguments {
   action: OpenAction;
@@ -40,27 +56,32 @@ Options:
 }
 
 function parse(args: readonly string[]): OpenArguments {
-  const result: OpenArguments = { action: "open" };
+  const result: OpenArguments = { action: OpenAction.Open };
   let selectedAction = false;
   for (let index = 0; index < args.length; index++) {
     const argument = args[index]!;
-    if (["--open", "--print", "--copy"].includes(argument)) {
+    const action = actionOptions.get(argument);
+    if (action !== undefined) {
       if (selectedAction) throw new Error("select only one of --open, --print, or --copy");
-      result.action = argument.slice(2) as OpenAction;
+      result.action = action;
       selectedAction = true;
       continue;
     }
-    const valueOption = ["--remote", "--ref", "--provider", "--line", "--lines"].includes(argument);
+    const valueOption = [
+      CliOption.Remote,
+      CliOption.Ref,
+      CliOption.Provider,
+      CliOption.Line,
+      CliOption.Lines,
+    ].some((option) => option === argument);
     if (valueOption) {
       const value = args[++index];
       if (!value) throw new Error(`${argument} needs a value`);
-      if (argument === "--remote") result.remote = value;
-      else if (argument === "--ref") result.ref = value;
-      else if (argument === "--provider") {
-        if (value !== "github" && value !== "gitlab")
-          throw new Error("--provider must be github or gitlab");
-        result.provider = value;
-      } else if (argument === "--line") {
+      if (argument === CliOption.Remote) result.remote = value;
+      else if (argument === CliOption.Ref) result.ref = value;
+      else if (argument === CliOption.Provider) {
+        result.provider = parseProviderName(value);
+      } else if (argument === CliOption.Line) {
         result.lines = { start: positiveInteger(value, argument) };
       } else {
         const match = value.match(/^(\d+):(\d+)$/);
@@ -89,7 +110,8 @@ async function execute(parsed: OpenArguments, deps: ResolvedDependencies): Promi
     deps.git,
   );
   const target = repositoryTarget(state.root, parsed.path, deps.cwd);
-  if (parsed.lines && target.kind !== "blob") throw new Error("line links require a file path");
+  if (parsed.lines && target.kind !== ResourceKind.Blob)
+    throw new Error("line links require a file path");
   const base = normalizeRemote(state.remote);
   const forge = provider(detectProvider(base, parsed.provider));
   const url = forge.resource(base, {
@@ -98,11 +120,11 @@ async function execute(parsed: OpenArguments, deps: ResolvedDependencies): Promi
     ...(parsed.lines === undefined ? {} : { lines: parsed.lines }),
   });
 
-  if (parsed.action === "print") {
+  if (parsed.action === OpenAction.Print) {
     deps.io.out(url);
     return 0;
   }
-  if (parsed.action === "copy") return deps.adapters.copy(url);
+  if (parsed.action === OpenAction.Copy) return deps.adapters.copy(url);
   return deps.adapters.open(url);
 }
 
@@ -112,7 +134,7 @@ export async function runOpen(
   program = "lemon repo",
 ): Promise<number> {
   const deps = dependencies(input);
-  if (args[0] === "--help" || args[0] === "-h") {
+  if (args[0] === CliOption.Help || args[0] === CliOption.HelpShort) {
     deps.io.out(openHelp(program));
     return 0;
   }

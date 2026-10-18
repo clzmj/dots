@@ -1,4 +1,6 @@
+import { CliOption } from "../../../shared/tokens";
 import pkg from "../package.json";
+import { Operation } from "./backend";
 import { run } from "./process";
 
 export function help(): string {
@@ -7,29 +9,29 @@ export function help(): string {
 ${pkg.description}
 
 Usage:
-  lemon clip copy [options]
-  lemon clip paste [options]
+  lemon clip ${Operation.Copy} [options]
+  lemon clip ${Operation.Paste} [options]
 
 Commands:
-  copy             Copy standard input to the system clipboard
-  paste            Write the system clipboard to standard output
+  ${Operation.Copy}             Copy standard input to the system clipboard
+  ${Operation.Paste}            Write the system clipboard to standard output
 
 Options:
-  --help, -h       Show help
-  --version, -v    Show module version`;
+  ${CliOption.Help}, ${CliOption.HelpShort}       Show help
+  ${CliOption.Version}, ${CliOption.VersionShort}    Show module version`;
 }
 
 export async function runClip(args: readonly string[]): Promise<number> {
   const [operation, ...rest] = args;
-  if (!operation || operation === "--help" || operation === "-h") {
+  if (!operation || operation === CliOption.Help || operation === CliOption.HelpShort) {
     console.log(help());
     return 0;
   }
-  if (operation === "--version" || operation === "-v") {
+  if (operation === CliOption.Version || operation === CliOption.VersionShort) {
     console.log(pkg.version);
     return 0;
   }
-  if (operation === "copy" || operation === "paste") {
+  if (operation === Operation.Copy || operation === Operation.Paste) {
     return run(operation, `lemon clip ${operation}`, rest);
   }
   console.error(`lemon clip: unknown command: ${operation}`);

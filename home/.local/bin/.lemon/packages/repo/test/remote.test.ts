@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
+import { ResourceKind } from "../src/target.ts";
 import { provider } from "../src/providers/index.ts";
-import { detectProvider, normalizeRemote } from "../src/remote.ts";
+import { detectProvider, normalizeRemote, parseProviderName, ProviderName } from "../src/remote.ts";
 
 describe("remote normalization", () => {
   test("normalizes common Git remote forms", () => {
@@ -29,18 +30,25 @@ describe("remote normalization", () => {
 });
 
 describe("providers", () => {
+  test("validates provider names at the CLI boundary", () => {
+    expect(parseProviderName("github")).toBe(ProviderName.GitHub);
+    expect(parseProviderName("gitlab")).toBe(ProviderName.GitLab);
+    expect(() => parseProviderName("unknown")).toThrow("--provider must be");
+  });
   test("detects GitHub and GitLab and requires overrides for unknown hosts", () => {
-    expect(detectProvider("https://github.com/acme/widgets")).toBe("github");
-    expect(detectProvider("https://gitlab.example/acme/widgets")).toBe("gitlab");
+    expect(detectProvider("https://github.com/acme/widgets")).toBe(ProviderName.GitHub);
+    expect(detectProvider("https://gitlab.example/acme/widgets")).toBe(ProviderName.GitLab);
     expect(() => detectProvider("https://code.example/acme/widgets")).toThrow("unknown forge");
-    expect(detectProvider("https://code.example/acme/widgets", "gitlab")).toBe("gitlab");
+    expect(detectProvider("https://code.example/acme/widgets", ProviderName.GitLab)).toBe(
+      ProviderName.GitLab,
+    );
   });
 
   test("builds provider-specific file, directory, commit, and line-range URLs", () => {
-    const github = provider("github");
+    const github = provider(ProviderName.GitHub);
     expect(
       github.resource("https://github.com/acme/widgets", {
-        kind: "blob",
+        kind: ResourceKind.Blob,
         ref: "feature/a",
         path: "src/a file.ts",
         lines: { start: 7, end: 9 },
@@ -48,19 +56,19 @@ describe("providers", () => {
     ).toBe("https://github.com/acme/widgets/blob/feature%2Fa/src/a%20file.ts#L7-L9");
     expect(
       github.resource("https://github.com/acme/widgets", {
-        kind: "tree",
+        kind: ResourceKind.Tree,
         ref: "main",
         path: "",
       }),
     ).toBe("https://github.com/acme/widgets/tree/main");
 
-    const gitlab = provider("gitlab");
+    const gitlab = provider(ProviderName.GitLab);
     expect(gitlab.commit("https://gitlab.com/acme/widgets", "abc1234")).toBe(
       "https://gitlab.com/acme/widgets/-/commit/abc1234",
     );
     expect(
       gitlab.resource("https://gitlab.com/acme/widgets", {
-        kind: "blob",
+        kind: ResourceKind.Blob,
         ref: "main",
         path: "src/a.ts",
         lines: { start: 7, end: 9 },
