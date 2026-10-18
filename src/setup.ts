@@ -9,6 +9,7 @@ import {
   writeSync,
 } from "node:fs";
 import {
+  copyFile,
   lstat,
   mkdir,
   readFile,
@@ -31,9 +32,25 @@ import {
 const GREEN = "\x1b[1;32m==>\x1b[0m";
 const YELLOW = "\x1b[1;33m==>\x1b[0m";
 
+export enum InstallMode {
+  Copy = "copy",
+  Symlink = "symlink",
+}
+
+export enum SetupAction {
+  Link = "link",
+  Copy = "copy",
+  Write = "write",
+}
+
+export enum AnswerKey {
+  Name = "NAME",
+  Email = "EMAIL",
+}
+
 export type SetupPlanEntry =
-  | { mode: "link"; source: string; destination: string }
-  | { mode: "write"; destination: string };
+  | { mode: SetupAction.Link | SetupAction.Copy; source: string; destination: string }
+  | { mode: SetupAction.Write; destination: string };
 
 export interface SetupOptions {
   dots: string;
@@ -53,6 +70,7 @@ export interface SetupResult {
   conflicts: string[];
   backup?: string;
   linked: number;
+  copied: number;
   pruned: string[];
 }
 
@@ -109,15 +127,23 @@ class TtyPrompt implements Prompt {
   }
 }
 
-export async function buildSetupPlan(dots: string, home: string): Promise<SetupPlanEntry[]> {
+export async function buildSetupPlan(
+  dots: string,
+  home: string,
+  mode: InstallMode = InstallMode.Copy,
+): Promise<SetupPlanEntry[]> {
   const sourceRoot = join(dots, "home");
   const entries: SetupPlanEntry[] = [];
   const glob = new Bun.Glob("**/*");
   for await (const path of glob.scan({ cwd: sourceRoot, dot: true, onlyFiles: true })) {
-    entries.push({ mode: "link", source: join(sourceRoot, path), destination: join(home, path) });
+    entries.push({
+      mode: mode === InstallMode.Symlink ? SetupAction.Link : SetupAction.Copy,
+      source: join(sourceRoot, path),
+      destination: join(home, path),
+    });
   }
   entries.sort((left, right) => left.destination.localeCompare(right.destination));
-  entries.push({ mode: "write", destination: join(home, ".config/git/local") });
+  entries.push({ mode: SetupAction.Write, destination: join(home, ".config/git/local") });
   return entries;
 }
 
@@ -128,8 +154,8 @@ export async function findConflicts(
   const conflicts: string[] = [];
   for (const entry of plan) {
     if (!(await pathExists(entry.destination))) continue;
-    if (entry.mode === "write") continue;
-    if (await isExactLink(entry.destination, entry.source)) continue;
+    if (entry.mode === SetupAction.Write) continue;
+    if (await isInstalled(entry)) continue;
     conflicts.push(relative(home, entry.destination));
   }
   const legacyGit = join(home, ".gitconfig");
@@ -145,10 +171,14 @@ export async function findConflicts(
 export async function setup(options: SetupOptions): Promise<SetupResult> {
   const dots = resolve(options.dots);
   const home = resolve(options.home);
-  const env = { ...process.env, ...options.env, HOME: home };
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    ...options.env,
+    ["HOME"]: home,
+  };
   const dryRun = options.dryRun ?? false;
-  const skipPackages = options.skipPackages ?? env.DOTS_SKIP_PACKAGES === "1";
-  const assumeYes = env.DOTS_YES === "1";
+  const skipPackages = options.skipPackages ?? env["DOTS_SKIP_PACKAGES"] === "1";
+  const assumeYes = env["DOTS_YES"] === "1";
   const prompt = options.prompt ?? new TtyPrompt(assumeYes);
   const runner = options.runner ?? new BunCommandRunner();
   const log = options.log ?? ((message) => console.log(`${GREEN} ${message}`));
@@ -162,10 +192,11 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       `${options.platform === "darwin" ? "darwin" : "linux"} detected${prompt.interactive ? "" : " (non-interactive)"}`,
     );
     log("configuration");
+    const installMode = resolveInstallMode(env, prompt, warn);
     const answersFile = join(home, ".config/dots/answers");
     const cached = await readAnswers(answersFile);
     const name = resolveAnswer(
-      "NAME",
+      AnswerKey.Name,
       "Full name (git commits)",
       "Carlos Lezama",
       env,
@@ -173,14 +204,15 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       prompt,
     );
     const email = resolveAnswer(
-      "EMAIL",
+      AnswerKey.Email,
       "Email (git commits)",
       "carlos@example.com",
       env,
       cached,
       prompt,
     );
-    if (!dryRun) await writeAnswers(answersFile, { NAME: name, EMAIL: email });
+    if (!dryRun)
+      await writeAnswers(answersFile, { [AnswerKey.Name]: name, [AnswerKey.Email]: email });
 
     if (skipPackages)
       warn("DOTS_SKIP_PACKAGES=1 — skipping optional packages (Bun and zsh remain required)");
@@ -196,14 +228,16 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       });
       packageFailures = packageReport.failures.length;
       if (packageFailures > 0)
-        warn(`${packageFailures} package group(s) failed; linking config before reporting failure`);
+        warn(
+          `${packageFailures} package group(s) failed; installing config before reporting failure`,
+        );
       if (dryRun)
         packageReport.planned.forEach((line) => {
           log(`[plan] ${line}`);
         });
     }
 
-    const plan = await buildSetupPlan(dots, home);
+    const plan = await buildSetupPlan(dots, home, installMode);
     const conflicts = await findConflicts(plan, home);
     let overwrite = true;
     if (conflicts.length > 0) {
@@ -213,7 +247,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       overwrite =
         assumeYes ||
         prompt.confirm("Replace them with the dots config? (originals move to ~/.dots-backup)");
-      if (!overwrite) warn("keeping your versions — everything else still gets linked");
+      if (!overwrite) warn("keeping your versions — everything else still gets installed");
     }
 
     const pruned = dryRun
@@ -224,10 +258,11 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
         log(`[plan] prune stale link ~/${relative(home, path)}`);
       });
 
-    log("linking config");
+    log(installMode === InstallMode.Copy ? "copying config" : "linking config");
     let linked = 0;
+    let copied = 0;
     for (const entry of plan) {
-      if (entry.mode === "link" && (await isExactLink(entry.destination, entry.source))) continue;
+      if (await isInstalled(entry)) continue;
       const relativeDestination = relative(home, entry.destination);
       if ((await pathExists(entry.destination)) && conflicts.includes(relativeDestination)) {
         if (!overwrite) continue;
@@ -236,14 +271,18 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       }
       if (dryRun) {
         log(`[plan] ${entry.mode} ~/${relativeDestination}`);
-        linked++;
+        if (entry.mode === SetupAction.Link) linked++;
+        else if (entry.mode === SetupAction.Copy) copied++;
         continue;
       }
       await mkdir(dirname(entry.destination), { recursive: true });
-      if (entry.mode === "link") {
+      if (entry.mode === SetupAction.Link) {
         await rm(entry.destination, { force: true, recursive: false });
         await symlink(entry.source, entry.destination);
         linked++;
+      } else if (entry.mode === SetupAction.Copy) {
+        await copyFile(entry.source, entry.destination);
+        copied++;
       } else if (!(await pathExists(entry.destination))) {
         await writeFile(entry.destination, `[user]\n\tname = ${name}\n\temail = ${email}\n`);
       }
@@ -262,7 +301,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     if (!dryRun && existsSync(backup)) log(`replaced files are in ${backup}`);
     if (!dryRun && packageFailures > 0) {
       throw new Error(
-        `${packageFailures} package group(s) failed; config linking completed but setup is incomplete`,
+        `${packageFailures} package group(s) failed; config installation completed but setup is incomplete`,
       );
     }
     log(dryRun ? "dry-run complete" : "done — open a new shell");
@@ -270,6 +309,7 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
       conflicts,
       backup: !dryRun && existsSync(backup) ? backup : undefined,
       linked,
+      copied,
       pruned,
     };
   } finally {
@@ -277,12 +317,36 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
   }
 }
 
+function resolveInstallMode(
+  env: Record<string, string | undefined>,
+  prompt: Prompt,
+  warn: (message: string) => void,
+): InstallMode {
+  const override = env["DOTS_INSTALL_MODE"];
+  if (override) {
+    const mode = Object.values(InstallMode).find((value) => value === override);
+    if (mode !== undefined) return mode;
+    throw new Error(`invalid DOTS_INSTALL_MODE: ${override} (expected copy or symlink)`);
+  }
+  if (env["DOTS_YES"] === "1" || !prompt.interactive) return InstallMode.Copy;
+  while (true) {
+    const answer = prompt
+      .ask("Install dotfiles: copy or symlink", InstallMode.Copy)
+      .trim()
+      .toLowerCase();
+    if (!answer) return InstallMode.Copy;
+    const mode = Object.values(InstallMode).find((value) => value === answer);
+    if (mode !== undefined) return mode;
+    warn("choose copy or symlink (press Enter for copy)");
+  }
+}
+
 function resolveAnswer(
-  key: string,
+  key: AnswerKey,
   question: string,
   defaultValue: string,
   env: Record<string, string | undefined>,
-  cached: Map<string, string>,
+  cached: Map<AnswerKey, string>,
   prompt: Prompt,
 ): string {
   return (
@@ -290,8 +354,8 @@ function resolveAnswer(
   );
 }
 
-export async function readAnswers(path: string): Promise<Map<string, string>> {
-  const answers = new Map<string, string>();
+export async function readAnswers(path: string): Promise<Map<AnswerKey, string>> {
+  const answers = new Map<AnswerKey, string>();
   let content: string;
   try {
     content = await readFile(path, "utf8");
@@ -301,12 +365,14 @@ export async function readAnswers(path: string): Promise<Map<string, string>> {
   }
   for (const line of content.split("\n")) {
     const separator = line.indexOf("=");
-    if (separator > 0) answers.set(line.slice(0, separator), line.slice(separator + 1));
+    if (separator <= 0) continue;
+    const key = Object.values(AnswerKey).find((value) => value === line.slice(0, separator));
+    if (key !== undefined) answers.set(key, line.slice(separator + 1));
   }
   return answers;
 }
 
-async function writeAnswers(path: string, answers: Record<string, string>): Promise<void> {
+async function writeAnswers(path: string, answers: Record<AnswerKey, string>): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const safe = Object.entries(answers)
     .map(([key, value]) => `${key}=${value.replace(/[\r\n]/g, " ")}`)
@@ -388,6 +454,23 @@ async function isExactLink(path: string, source: string): Promise<boolean> {
   }
 }
 
+async function isInstalled(entry: SetupPlanEntry): Promise<boolean> {
+  if (entry.mode === SetupAction.Write) return false;
+  if (entry.mode === SetupAction.Link) return isExactLink(entry.destination, entry.source);
+  try {
+    const destination = await lstat(entry.destination);
+    if (!destination.isFile()) return false;
+    const source = await lstat(entry.source);
+    if (destination.size !== source.size || (destination.mode & 0o777) !== (source.mode & 0o777))
+      return false;
+    const [left, right] = await Promise.all([readFile(entry.destination), readFile(entry.source)]);
+    return left.equals(right);
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
 function isMissing(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
@@ -404,9 +487,9 @@ async function ensureLoginShell(
   dryRun: boolean,
   log: (message: string) => void,
 ): Promise<void> {
-  const zsh = whichInPath("zsh", env.PATH);
+  const zsh = whichInPath("zsh", env["PATH"]);
   if (!zsh) throw new Error("zsh is required but was not installed");
-  const user = env.USER || env.LOGNAME || process.env.USER;
+  const user = env["USER"] || env["LOGNAME"] || process.env["USER"];
   if (!user) throw new Error("cannot set the zsh login shell without USER or LOGNAME");
   const current = await loginShell(platform, runner, user, env);
   if (current === zsh) return;
@@ -464,18 +547,18 @@ async function main(): Promise<void> {
   const dryRun =
     process.argv.includes("--dry-run") ||
     process.argv.includes("--plan") ||
-    process.env.DOTS_DRY_RUN === "1";
+    process.env["DOTS_DRY_RUN"] === "1";
   const platform = platformFromEnvironment();
   await setup({
-    dots: process.env.DOTS || root,
+    dots: process.env["DOTS"] || root,
     home:
-      process.env.HOME ||
+      process.env["HOME"] ||
       (() => {
         throw new Error("HOME is not set");
       })(),
     platform,
     dryRun,
-    skipPackages: process.env.DOTS_SKIP_PACKAGES === "1",
+    skipPackages: process.env["DOTS_SKIP_PACKAGES"] === "1",
   });
 }
 

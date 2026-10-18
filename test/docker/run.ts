@@ -1,13 +1,16 @@
-import { lstat, mkdtemp, readFile, readlink, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { detectPlatform, installPackages, type Platform } from "../../src/packages";
+import { detectPlatform, installPackages } from "../../src/packages";
+
+import { InstallMode } from "../../src/setup";
 
 const root = resolve(import.meta.dir, "../..");
-const expected = process.env.DOTS_DOCKER_PLATFORM as Platform | undefined;
+const override = process.env["DOTS_DOCKER_PLATFORM"];
+const expected = (["debian", "fedora", "arch"] as const).find((value) => value === override);
 
-if (!expected || !(["debian", "fedora", "arch"] as const).includes(expected as never)) {
-  throw new Error(`invalid DOTS_DOCKER_PLATFORM: ${expected ?? "unset"}`);
+if (expected === undefined) {
+  throw new Error(`invalid DOTS_DOCKER_PLATFORM: ${override ?? "unset"}`);
 }
 
 const detected = detectPlatform();
@@ -23,7 +26,11 @@ const plan = await installPackages({
   log: () => {},
   warn: () => {},
 });
-const manager = { debian: "apt-get", fedora: "dnf", arch: "pacman" }[expected];
+const manager = {
+  ["debian"]: "apt-get",
+  ["fedora"]: "dnf",
+  ["arch"]: "pacman",
+}[expected];
 if (!plan.planned.some((entry) => entry.includes(manager))) {
   throw new Error(`${expected} dry-run did not plan ${manager}:\n${plan.planned.join("\n")}`);
 }
@@ -35,19 +42,20 @@ try {
     run(["dash", "-n", "setup.sh"]),
     run(["bun", "test", "--parallel", "--isolate"]),
     run(["sh", "setup.sh"], {
-      HOME: home,
-      DOTS: root,
-      DOTS_SKIP_PACKAGES: "1",
-      DOTS_YES: "1",
-      DOTS_NAME: "Container Test",
-      DOTS_EMAIL: `${expected}@example.invalid`,
+      ["HOME"]: home,
+      ["DOTS"]: root,
+      ["DOTS_SKIP_PACKAGES"]: "1",
+      ["DOTS_YES"]: "1",
+      ["DOTS_INSTALL_MODE"]: InstallMode.Copy,
+      ["DOTS_NAME"]: "Container Test",
+      ["DOTS_EMAIL"]: `${expected}@example.invalid`,
     }),
   ]);
 
   const zshrc = join(home, ".zshrc");
-  if (!(await lstat(zshrc)).isSymbolicLink()) throw new Error("setup did not link ~/.zshrc");
-  if ((await readlink(zshrc)) !== join(root, "home/.zshrc")) {
-    throw new Error("setup linked ~/.zshrc to the wrong checkout");
+  if (!(await lstat(zshrc)).isFile()) throw new Error("setup did not copy ~/.zshrc");
+  if ((await readFile(zshrc, "utf8")) !== (await readFile(join(root, "home/.zshrc"), "utf8"))) {
+    throw new Error("setup copied ~/.zshrc from the wrong checkout");
   }
   const identity = await readFile(join(home, ".config/git/local"), "utf8");
   if (!identity.includes(`${expected}@example.invalid`)) {
@@ -62,7 +70,7 @@ async function run(
   command: readonly [string, ...string[]],
   env?: Record<string, string>,
 ): Promise<void> {
-  const child = Bun.spawn(command, {
+  const child = Bun.spawn([...command], {
     cwd: root,
     env: { ...process.env, ...env },
     stdin: "ignore",

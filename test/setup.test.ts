@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
@@ -13,17 +14,19 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { CommandRunner } from "../src/lib/process";
-import { findStaleLinks, setup, type Prompt } from "../src/setup";
+import { InstallMode, findStaleLinks, setup, type Prompt } from "../src/setup";
 
 class FixedPrompt implements Prompt {
   readonly interactive: boolean;
   constructor(
     private readonly confirmed: boolean,
     interactive = false,
+    private readonly modeAnswers: string[] = [],
   ) {
     this.interactive = interactive;
   }
-  ask(_question: string, defaultValue: string): string {
+  ask(question: string, defaultValue: string): string {
+    if (question.includes("copy or symlink")) return this.modeAnswers.shift() ?? defaultValue;
     return defaultValue;
   }
   confirm(): boolean {
@@ -59,19 +62,27 @@ function loginShellRunner(home: string): CommandRunner {
 const quiet = { log: () => {}, warn: () => {} };
 
 describe("setup", () => {
-  test("links dotfiles, writes identity, and caches answers idempotently", async () => {
+  test("defaults to independent copies, writes identity, and reruns idempotently", async () => {
     const item = await fixture();
     try {
       const options = {
         ...item,
-        platform: "debian" as const,
+        platform: "debian",
         skipPackages: true,
-        env: { DOTS_YES: "1", DOTS_NAME: "Ada Lovelace", DOTS_EMAIL: "ada@example.org" },
+        env: {
+          ["DOTS_YES"]: "1",
+          ["DOTS_INSTALL_MODE"]: undefined,
+          ["DOTS_NAME"]: "Ada Lovelace",
+          ["DOTS_EMAIL"]: "ada@example.org",
+        },
         prompt: new FixedPrompt(true),
         ...quiet,
       };
       const first = await setup(options);
-      expect(await readlink(join(item.home, ".zshrc"))).toBe(join(item.dots, "home/.zshrc"));
+      expect((await lstat(join(item.home, ".zshrc"))).isFile()).toBe(true);
+      expect(await readFile(join(item.home, ".zshrc"), "utf8")).toBe("source config\n");
+      expect(first.copied).toBe(2);
+      expect(first.linked).toBe(0);
       expect(await readFile(join(item.home, ".config/git/local"), "utf8")).toContain(
         "ada@example.org",
       );
@@ -82,6 +93,9 @@ describe("setup", () => {
       const second = await setup(options);
       expect(second.conflicts).toHaveLength(0);
       expect(second.backup).toBeUndefined();
+      expect(second.copied).toBe(0);
+      await writeFile(join(item.home, ".zshrc"), "local edit\n");
+      expect(await readFile(join(item.dots, "home/.zshrc"), "utf8")).toBe("source config\n");
     } finally {
       await rm(item.root, { recursive: true, force: true });
     }
@@ -100,7 +114,8 @@ describe("setup", () => {
         ...quiet,
       });
       expect(result.conflicts).toEqual(expect.arrayContaining([".zshrc", ".gitconfig"]));
-      expect(await readlink(join(item.home, ".zshrc"))).toBe(join(item.dots, "home/.zshrc"));
+      expect((await lstat(join(item.home, ".zshrc"))).isFile()).toBe(true);
+      expect(await readFile(join(item.home, ".zshrc"), "utf8")).toBe("source config\n");
       expect(result.backup).toBeDefined();
       if (!result.backup) throw new Error("expected setup to create a backup");
       expect(await readFile(join(result.backup, ".zshrc"), "utf8")).toBe("mine\n");
@@ -110,7 +125,7 @@ describe("setup", () => {
     }
   });
 
-  test("declining preserves conflicts but links everything else", async () => {
+  test("declining preserves conflicts but copies everything else", async () => {
     const item = await fixture();
     try {
       await writeFile(join(item.home, ".zshrc"), "mine\n");
@@ -122,8 +137,8 @@ describe("setup", () => {
         ...quiet,
       });
       expect(await readFile(join(item.home, ".zshrc"), "utf8")).toBe("mine\n");
-      expect(await readlink(join(item.home, ".config/zsh/shell.zsh"))).toBe(
-        join(item.dots, "home/.config/zsh/shell.zsh"),
+      expect(await readFile(join(item.home, ".config/zsh/shell.zsh"), "utf8")).toBe(
+        "alias hi=hello\n",
       );
       expect(result.backup).toBeUndefined();
     } finally {
@@ -167,16 +182,16 @@ describe("setup", () => {
         log: (line) => lines.push(line),
         warn: () => {},
       });
-      expect(result.linked).toBeGreaterThan(0);
+      expect(result.copied).toBeGreaterThan(0);
       expect(existsSync(join(item.home, ".zshrc"))).toBe(false);
       expect(existsSync(join(item.home, ".config/dots/answers"))).toBe(false);
-      expect(lines.some((line) => line.includes("[plan] link ~/.zshrc"))).toBe(true);
+      expect(lines.some((line) => line.includes("[plan] copy ~/.zshrc"))).toBe(true);
     } finally {
       await rm(item.root, { recursive: true, force: true });
     }
   });
 
-  test("links config but rejects when package installation is incomplete", async () => {
+  test("copies config but rejects when package installation is incomplete", async () => {
     const item = await fixture();
     try {
       const promise = setup({
@@ -193,7 +208,7 @@ describe("setup", () => {
           run: async (command) => ({
             command,
             exitCode: 0,
-            stdout: `user:x:1000:1000::/home/user:${process.env.SHELL || "/bin/zsh"}\n`,
+            stdout: `user:x:1000:1000::/home/user:${process.env["SHELL"] || "/bin/zsh"}\n`,
             stderr: "",
             durationMs: 0,
           }),
@@ -201,7 +216,7 @@ describe("setup", () => {
         ...quiet,
       });
       await expect(promise).rejects.toThrow("setup is incomplete");
-      expect(await readlink(join(item.home, ".zshrc"))).toBe(join(item.dots, "home/.zshrc"));
+      expect((await lstat(join(item.home, ".zshrc"))).isFile()).toBe(true);
     } finally {
       await rm(item.root, { recursive: true, force: true });
     }
@@ -223,7 +238,10 @@ describe("setup", () => {
       const promise = setup({
         ...item,
         platform: "debian",
-        env: { PATH: `${shell.slice(0, shell.lastIndexOf("/"))}:/usr/bin:/bin`, USER: "user" },
+        env: {
+          ["PATH"]: `${shell.slice(0, shell.lastIndexOf("/"))}:/usr/bin:/bin`,
+          ["USER"]: "user",
+        },
         prompt: new FixedPrompt(true),
         packageInstaller: async () => ({ planned: [], installed: [], skipped: [], failures: [] }),
         runner,
@@ -235,32 +253,140 @@ describe("setup", () => {
     }
   });
 
-  test("links Lemon into local bin as a runnable Bun command", async () => {
-    const root = await mkdtemp(join(tmpdir(), "dots-lemon-setup-test-"));
-    const dots = resolve(import.meta.dir, "..");
-    const home = join(root, "home");
+  test.each(Object.values(InstallMode))(
+    "installs Lemon using %s as a runnable Bun command",
+    async (mode) => {
+      const root = await mkdtemp(join(tmpdir(), "dots-lemon-setup-test-"));
+      const dots = resolve(import.meta.dir, "..");
+      const home = join(root, "home");
+      try {
+        await mkdir(home);
+        await setup({
+          dots,
+          home,
+          platform: "darwin",
+          skipPackages: true,
+          env: {
+            ["DOTS_YES"]: "1",
+            ["DOTS_INSTALL_MODE"]: mode,
+          },
+          runner: loginShellRunner(home),
+          prompt: new FixedPrompt(true),
+          ...quiet,
+        });
+        const lemon = join(home, ".local/bin/lemon");
+        expect((await lstat(lemon)).isSymbolicLink()).toBe(mode === InstallMode.Symlink);
+        if (mode === InstallMode.Symlink)
+          expect(await readlink(lemon)).toBe(join(dots, "home/.local/bin/lemon"));
+        const result = Bun.spawnSync([lemon, "--version"], {
+          env: { ...process.env, ["HOME"]: home },
+          stdout: "pipe",
+        });
+        expect(result.exitCode).toBe(0);
+        expect(new TextDecoder().decode(result.stdout).trim()).toBe("0.1.0");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test.each([
+    ["", InstallMode.Copy],
+    [InstallMode.Symlink, InstallMode.Symlink],
+    ["invalid", InstallMode.Symlink],
+  ])("interactive choice %s resolves to %s", async (answer, expected) => {
+    const item = await fixture();
     try {
-      await mkdir(home);
-      await setup({
-        dots,
-        home,
-        platform: "darwin",
+      const warnings: string[] = [];
+      const result = await setup({
+        ...item,
+        platform: "debian",
         skipPackages: true,
-        env: { DOTS_YES: "1" },
-        runner: loginShellRunner(home),
-        prompt: new FixedPrompt(true),
+        env: { ["DOTS_YES"]: undefined, ["DOTS_INSTALL_MODE"]: undefined },
+        prompt: new FixedPrompt(true, true, [answer, InstallMode.Symlink]),
         ...quiet,
+        warn: (line) => warnings.push(line),
       });
-      const lemon = join(home, ".local/bin/lemon");
-      expect(await readlink(lemon)).toBe(join(dots, "home/.local/bin/lemon"));
-      const result = Bun.spawnSync([lemon, "--version"], {
-        env: { ...process.env, HOME: home },
-        stdout: "pipe",
-      });
-      expect(result.exitCode).toBe(0);
-      expect(new TextDecoder().decode(result.stdout).trim()).toBe("0.1.0");
+      expect((await lstat(join(item.home, ".zshrc"))).isSymbolicLink()).toBe(
+        expected === InstallMode.Symlink,
+      );
+      expect(result.linked).toBe(expected === InstallMode.Symlink ? 2 : 0);
+      if (answer === "invalid")
+        expect(warnings).toContain("choose copy or symlink (press Enter for copy)");
     } finally {
-      await rm(root, { recursive: true, force: true });
+      await rm(item.root, { recursive: true, force: true });
+    }
+  });
+
+  test.each(Object.values(InstallMode))(
+    "switches from %s with backups and preserves conflicts when declined",
+    async (mode) => {
+      const item = await fixture();
+      try {
+        const options = {
+          ...item,
+          platform: "debian",
+          skipPackages: true,
+          prompt: new FixedPrompt(true),
+          ...quiet,
+        };
+        await setup({
+          ...options,
+          env: {
+            ["DOTS_YES"]: "1",
+            ["DOTS_INSTALL_MODE"]: mode,
+          },
+        });
+        const repeat = await setup({
+          ...options,
+          env: {
+            ["DOTS_YES"]: "1",
+            ["DOTS_INSTALL_MODE"]: mode,
+          },
+        });
+        expect(repeat.conflicts).toHaveLength(0);
+        const nextMode = mode === InstallMode.Copy ? InstallMode.Symlink : InstallMode.Copy;
+        const env = {
+          ["DOTS_YES"]: undefined,
+          ["DOTS_INSTALL_MODE"]: nextMode,
+        };
+        const declined = await setup({ ...options, env, prompt: new FixedPrompt(false) });
+        expect(declined.backup).toBeUndefined();
+        expect((await lstat(join(item.home, ".zshrc"))).isSymbolicLink()).toBe(
+          mode === InstallMode.Symlink,
+        );
+        const accepted = await setup({ ...options, env });
+        expect(accepted.backup).toBeDefined();
+        if (!accepted.backup) throw new Error("expected mode switch backup");
+        expect((await lstat(join(accepted.backup, ".zshrc"))).isSymbolicLink()).toBe(
+          mode === InstallMode.Symlink,
+        );
+        expect((await lstat(join(item.home, ".zshrc"))).isSymbolicLink()).toBe(
+          nextMode === InstallMode.Symlink,
+        );
+        expect(await readFile(join(item.dots, "home/.zshrc"), "utf8")).toBe("source config\n");
+      } finally {
+        await rm(item.root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  test("rejects invalid unattended mode before writing configuration", async () => {
+    const item = await fixture();
+    try {
+      await expect(
+        setup({
+          ...item,
+          platform: "debian",
+          skipPackages: true,
+          env: { ["DOTS_INSTALL_MODE"]: "invalid" },
+          prompt: new FixedPrompt(true),
+          ...quiet,
+        }),
+      ).rejects.toThrow("invalid DOTS_INSTALL_MODE");
+      expect(existsSync(join(item.home, ".config/dots/answers"))).toBe(false);
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
     }
   });
 });
@@ -285,9 +411,9 @@ test("POSIX bootstrap accepts Bun 1.4 and execs with --no-orphans", async () => 
     const result = Bun.spawnSync(["sh", bootstrap], {
       env: {
         ...process.env,
-        PATH: `${fakeBin}:${process.env.PATH}`,
-        HOME: join(root, "fake-home"),
-        FAKE_BUN_LOG: log,
+        ["PATH"]: `${fakeBin}:${process.env["PATH"]}`,
+        ["HOME"]: join(root, "fake-home"),
+        ["FAKE_BUN_LOG"]: log,
       },
       stdout: "pipe",
       stderr: "pipe",

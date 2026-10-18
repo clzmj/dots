@@ -14,15 +14,17 @@ setup is recoverable from `~/.dots-backup/<timestamp>/`.
 
 ## How it works
 
-Files under `home/` mirror `$HOME` and are symlinked, not copied. Editing
-`~/.config/helix/config.toml`, for example, edits the checked-out repo directly.
+Files under `home/` mirror `$HOME`. Setup asks whether to copy or symlink them,
+with a regular file copy as the default. Copies can be edited independently of
+the checkout. With symlinks, editing `~/.config/helix/config.toml`, for example,
+edits the checked-out repo directly.
 The only generated file is `~/.config/git/local`, containing the name and email
 collected during setup.
 
 ```text
-home/                   files linked into $HOME
-home/.local/bin/lemon    Bun CLI installed by the normal dotfile linking pass
-src/setup.ts            configuration, backup, linking, and stale-link cleanup
+home/                   files copied or linked into $HOME
+home/.local/bin/lemon    Bun CLI installed by the normal dotfile setup pass
+src/setup.ts            configuration, backup, copying/linking, and stale-link cleanup
 src/packages.ts         stable public entry point for package setup
 src/packages/install.ts shared package orchestration and installer mechanics
 src/packages/platforms/ isolated inventories and install plans for each OS
@@ -33,7 +35,9 @@ setup.sh                prerequisite/Bun/checkout bootstrap only
 
 Re-running setup is idempotent. If a destination already exists, setup lists
 all conflicts once and either preserves them or moves them to the timestamped
-backup before linking the repository version. Dangling links that still point
+backup before installing the repository version. Identical copies and matching
+symlinks are left in place. Switching modes uses the same conflict and backup
+flow. Dangling links that still point
 into this repo are pruned; unrelated links are untouched.
 
 ## Concurrency model
@@ -56,11 +60,15 @@ Setup asks for a Git name and email. Each value comes from the first available
 source: `DOTS_NAME` / `DOTS_EMAIL`, the cached answer, an interactive reply, or
 the default. Answers are stored in `~/.config/dots/answers`.
 
-With no TTY—or with `DOTS_YES=1`—setup never blocks. Useful controls are:
+The copy-or-symlink choice is asked on each interactive run, unless
+`DOTS_INSTALL_MODE` is set. With no TTY—or with `DOTS_YES=1`—setup never blocks
+and defaults to copying. Useful controls are:
 
 ```sh
-DOTS_SKIP_PACKAGES=1 ./setup.sh # link config; Bun and zsh remain foundational
-DOTS_DRY_RUN=1 ./setup.sh       # print the package/link plan without changing it
+DOTS_INSTALL_MODE=copy ./setup.sh    # install independent file copies (default)
+DOTS_INSTALL_MODE=symlink ./setup.sh # link files to this checkout
+DOTS_SKIP_PACKAGES=1 ./setup.sh      # install config; Bun and zsh remain foundational
+DOTS_DRY_RUN=1 ./setup.sh            # print the package/config plan without changing it
 DOTS_BUN_VERSION=bun-v1.4.0 ./setup.sh
 ```
 
@@ -93,7 +101,7 @@ The inventory keeps platform-specific naming and release behavior explicit:
 - A downloaded Helix release includes its required `runtime/` directory.
 - Bun global tools are installed with Bun and node-style launcher shebangs are
   wrapped when Node is absent. Lemon is part of the mirrored dotfiles tree and
-  is linked directly into `~/.local/bin`.
+  is copied or linked directly into `~/.local/bin`.
 
 Bun itself is installed before this inventory is evaluated, so the setup,
 helpers, downloads, archive extraction, tests, and subprocess orchestration all
@@ -102,7 +110,7 @@ share one runtime from the beginning.
 ## Command-line tools
 
 Lemon lives at [`home/.local/bin/lemon`](home/.local/bin/lemon), with private
-modules beside it under `home/.local/bin/.lemon`. The normal setup linking pass
+modules beside it under `home/.local/bin/.lemon`. The normal dotfile setup pass
 installs it at `~/.local/bin/lemon`; setup does not fetch or globally install
 any `@lemonaid-dev/*` packages.
 
