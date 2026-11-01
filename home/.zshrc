@@ -46,3 +46,9 @@ TRAPINT() { printf '\033[?25h'; return $(( 128 + $1 )); }
 # >>> railway initialize >>>
 source "$HOME/.railway/env"
 # <<< railway initialize <<<
+
+# >>> grok installer >>>
+export PATH="$HOME/.grok/bin:$PATH"
+fpath=(~/.grok/completions/zsh $fpath)
+autoload -Uz compinit && compinit -C
+# <<< grok installer <<<
