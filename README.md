@@ -118,6 +118,16 @@ any `@lemonaid-dev/*` packages.
 lemon --help
 ```
 
+On macOS, `nosleep` toggles system sleep, including sleep when the lid closes.
+It requires administrator access and prints the new state. The setting also
+applies on battery; run `nosleep` again to restore normal sleep.
+On macOS, setup installs a root-owned `/etc/sudoers.d/nosleep` rule for the
+current account, allowing only `/usr/bin/pmset disablesleep 0` and
+`/usr/bin/pmset disablesleep 1` without a password. Setup requests administrator
+authorization once if needed; unattended runs require `sudo -v` first. Matching
+rules are preserved, conflicting rules are rejected, and Linux skips this step.
+Setup never changes the current sleep setting.
+
 `nd` and `rehash-completions` remain Zsh functions because they must mutate the
 calling shell; a child process cannot change its parent's directory or rebuild
 its completion state. The portable tool PATH lives in `~/.zshenv`, so the same

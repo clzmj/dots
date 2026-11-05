@@ -64,9 +64,11 @@ function loginShellRunner(home: string): CommandRunner {
   return {
     async run(command) {
       const stdout =
-        command[0] === Executable.Id
-          ? `user:*:501:20::0:0:User:${home}:${shell}\n`
-          : `user:x:1000:1000::${home}:${shell}\n`;
+        command[0] === Executable.Id && command[1] === "-un"
+          ? "user\n"
+          : command[0] === Executable.Id
+            ? `user:*:501:20::0:0:User:${home}:${shell}\n`
+            : `user:x:1000:1000::${home}:${shell}\n`;
       return { command, exitCode: 0, stdout, stderr: "", durationMs: 0 };
     },
   };

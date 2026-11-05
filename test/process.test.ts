@@ -28,6 +28,17 @@ describe("process orchestration", () => {
     expect(performance.now() - started).toBeLessThan(1_000);
   });
 
+  test("can preserve the terminal process group for sudo authorization", async () => {
+    const parent = Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(process.pid)]);
+    const result = await new BunCommandRunner().run(
+      [Executable.Sh, ShellFlag.Command, 'ps -o pgid= -p "$$"'],
+      { detached: false },
+    );
+    expect(parent.exitCode).toBe(0);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(parent.stdout.toString().trim());
+  });
+
   test("timeout kills descendants that keep captured pipes open", async () => {
     const started = performance.now();
     const result = await new BunCommandRunner().run(

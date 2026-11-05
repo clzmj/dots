@@ -1,0 +1,30 @@
+#!/usr/bin/env bun
+
+if (process.platform !== "darwin") {
+  console.error("nosleep is only available on macOS.");
+  process.exit(1);
+}
+
+const current = Bun.spawnSync(["pmset", "-g"], { stdout: "pipe", stderr: "inherit" });
+if (current.exitCode !== 0) process.exit(current.exitCode || 1);
+
+// macOS omits SleepDisabled when it has never been explicitly set.
+const state = current.stdout.toString().match(/^\s*SleepDisabled\s+(\S+)/m)?.[1] ?? "0";
+if (state !== "0" && state !== "1") {
+  console.error("Could not read the current sleep setting.");
+  process.exit(1);
+}
+
+const next = state === "1" ? "0" : "1";
+const changed = Bun.spawnSync(["sudo", "pmset", "disablesleep", next], {
+  stdin: "inherit",
+  stdout: "inherit",
+  stderr: "inherit",
+});
+if (changed.exitCode !== 0) process.exit(changed.exitCode || 1);
+
+console.log(
+  next === "1"
+    ? "Sleep disabled — Mac stays awake with the lid closed (also on battery)."
+    : "Normal sleep restored.",
+);

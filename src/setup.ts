@@ -38,6 +38,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { BunCommandRunner, type Command, type CommandRunner } from "./lib/process";
+import { setupNoSleep } from "./nosleep";
 import {
   installPackages,
   platformFromEnvironment,
@@ -316,6 +317,14 @@ export async function setup(options: SetupOptions): Promise<SetupResult> {
     }
 
     await ensureLoginShell(options.platform, runner, env, dryRun, log);
+    await setupNoSleep({
+      platform: options.platform,
+      runner,
+      env,
+      dryRun,
+      interactive: prompt.interactive,
+      log,
+    });
     if (!dryRun && existsSync(backup)) log(`replaced files are in ${backup}`);
     if (!dryRun && packageFailures > 0) {
       throw new Error(

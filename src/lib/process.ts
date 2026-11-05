@@ -4,6 +4,7 @@ export type Command = readonly [string, ...string[]];
 export interface RunOptions {
   cwd?: string;
   env?: Record<string, string | undefined>;
+  detached?: boolean;
   stdinText?: string;
   timeoutMs?: number;
 }
@@ -46,7 +47,7 @@ export class BunCommandRunner implements CommandRunner {
       env: mergeEnv(options.env),
       // A fresh process group lets a timeout terminate grandchildren holding
       // stdout/stderr pipes open (installers frequently spawn helpers).
-      detached: process.platform !== RuntimePlatform.Windows,
+      detached: options.detached ?? process.platform !== RuntimePlatform.Windows,
       stdin: options.stdinText === undefined ? StreamMode.Inherit : StreamMode.Pipe,
       stdout: StreamMode.Pipe,
       stderr: StreamMode.Pipe,
